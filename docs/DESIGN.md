@@ -792,7 +792,9 @@ balance above capacity; such a failure is reported as an error naming the
 player, pool, and units. A true atomic multi-currency spend in Ley Lines would
 supersede the rollback. D78 supersedes this ordering and rollback in
 implementation: Ability Core now validates before the handler and charges after
-the effect acts, keeping the validation and no-effect rules above.
+the effect acts, keeping the validation and no-effect rules above. D94
+supersedes the per-spell cost configuration: costs now come only from each
+spell's recipe.
 
 **D77.** Personal pool recharge (D70) unlocks **permanently** the first time a
 player has a `technomagy:spell_focus` anywhere in their inventory, by any means
@@ -1443,6 +1445,173 @@ entries always, Mend alone once Water and Light reach 10, unknown
 listing all twenty-two ids); `check` and all 50 GameTests stay green.
 The menu itself is client render: honest scope is the user's in-game
 check, stated as such.
+
+### Spell recipes
+
+D94-D98 define spells as JSON recipes, the order-free heuristic for compositions
+without a handler, single-element and modifier effects, and spell reach.
+
+**D94.** Spells are defined by JSON **spell recipes**. A recipe has:
+
+- `name`: a text component (a plain string or a translation key).
+- `composition`: one to four entries of `{"element": <flavor>, "cost": <units>}`,
+  each a distinct flavor of the six (never Raw), each cost a whole number of
+  units of at least 1 (D47). The list is **unordered**: the same elements in
+  any order are the same composition. At most four elements per spell is a
+  system limit; spells of more than two elements are machine-cast only
+  (prisms and directors), with Growth as the one built-in exception.
+- `handler`: optional; the id of a spell handler (D95) that produces the
+  effect. Without one, the heuristic of D96 decides the effect.
+
+Recipes come from two places:
+
+- **Built-in spells.** The sixteen built-in spells (D69) are the mod's own
+  recipe files, read from the mod jar at startup, before Ability Core's
+  registry fills. They are the only player-castable spells: each registers
+  as an Ability Core ability under its existing id, so saved hotbars and
+  mastery carry over, and each names its built-in handler.
+- **World datapacks.** `data/<namespace>/technomagy/spell/<path>.json`,
+  loaded by a server reload listener, so `/reload` applies changes. These
+  recipes are **machine-only**, including one that overrides a built-in by
+  id: a datapack cannot add or change hotbar abilities, because Ability
+  Core's ability registry is filled once at startup. The built-in files
+  live at the same path, so they also load as the world's machine recipes.
+
+Validation rejects a recipe, reporting the file and the reason, when it has
+no elements or more than four, a repeated element, Raw, a cost below 1, or a
+missing or malformed field. A bad world-datapack file is reported and
+skipped; a bad built-in file is a defect and stops startup. Two recipes with
+the **same element set** are a data error: both are reported and skipped,
+whatever their costs. A datapack recipe with the same id as another recipe
+replaces it under normal datapack precedence first; only distinct ids
+conflict.
+
+The recipe's costs are the only cost source. This supersedes D76's per-spell
+`payment.costs` server config section, which is removed; D76's
+`payment.enabled` default, creative exemption, and payment rules remain.
+Because built-in costs are known at registration, the declared Ability Core
+costs are the real prices, not display defaults (revising D78), and D79's
+effort pricing reads the recipe cost. A zero cost can no longer occur.
+
+**D95.** Spell **handlers** live in a Technomagy registry,
+`technomagy:spell_handler`, keyed by resource location. The sixteen built-in
+effects register as `technomagy:<spell>` (`technomagy:erode`, ...); other
+mods register their own. A handler receives one **cast context**: the level,
+the origin position and facing, the owner's UUID, the casting player when
+there is one (empty for a machine cast), the target, and the evaluated
+powers and modifiers. Protection and permission checks use the casting
+player when present and the owner otherwise, so machine casts need no API
+change when prisms and directors are wired.
+
+A recipe naming a handler id that is not registered logs a **warning**
+naming the recipe and the id, and the recipe's effect falls back to the
+heuristic (D96).
+
+A stream **matches** a recipe when it contains exactly the recipe's element
+set and at least the recipe's cost of each element. Units beyond the cost
+add power to the matched elements, as base-element additions do (D58). A
+stream that matches no recipe is interpreted by the heuristic (D96).
+
+**D96.** The order-free **composition heuristic** interprets a composition
+that has no handler, whether from a recipe without one or an unmatched
+stream:
+
+- **One element**: the element's own principle effect (D97).
+- **Two elements**: the pair's established spell (D63 catalogue), as before.
+  Light + Dark remains the life & death utility.
+- **Three or four elements**: one pair **acts** and every other element
+  **modifies** it (D58). The acting pair is an **opposed pair** (Earth/Air,
+  Fire/Water, Light/Dark) if the composition holds one; otherwise the two
+  elements with the most units. Ties, including a composition holding two
+  opposed pairs such as Earth + Air + Fire + Water, go to the pair with the
+  higher combined cost, then to element order Fire, Earth, Air, Water,
+  Light, Dark (the first pair in that order wins). Light + Dark is a
+  utility, not a spell, so when it would act, the best remaining spell
+  pair acts instead and Light and Dark are modifiers. Modifiers apply Light
+  and Dark first, then the rest in element order; if both Light and Dark
+  are modifiers, unpaired, they annihilate (D36) instead of applying.
+
+There is no construction order in a composition, so each modifier element
+applies once with all its units grouped (D59 grouped addition). Earth and
+Air can never both be modifiers: together they are the opposed acting pair.
+Growth (Water + Light + Earth) stays the D44/D63 special case.
+
+**D97.** **Single-element effects.** Each element alone applies its
+principle. The effect depends on what the cast targets. Every number below is
+a server config value (`technomagy-spells-server.toml`), and the stated value
+is its default; none is hard-coded.
+
+| Element | Targeting a block | Targeting a creature | Nothing targeted |
+| --- | --- | --- | --- |
+| Earth | raise one temporary earth block on the targeted face, lasting the short duration | - | raise it beneath the caster's feet |
+| Air | - | push the creature away with the Steam impulse | leap: the Steam impulse applied upward to the caster; fall damage is normal |
+| Fire | ignite the targeted face (placing fire where allowed) | set it alight for 3 s | - |
+| Water | quench fire at and around the target; pull item and experience entities within 4 blocks toward the caster | extinguish it | pull items and experience around the caster |
+| Light | - | night vision for the standard duration | night vision on the caster |
+| Dark | break the block if its hardness is within the break threshold, with normal drops | darkness for the short duration | - |
+
+Units beyond the first scale **one axis per element**:
+
+| Element | Scaled axis | Per extra unit | Cap |
+| --- | --- | --- | --- |
+| Earth | block duration (still one block) | + short duration | - |
+| Air | impulse | + Steam impulse | the impulse config maximum |
+| Fire | seconds alight | + 3 s | 15 s |
+| Water | radius | + 2 blocks | - |
+| Light | night-vision duration | + standard duration | - |
+| Dark | darkness duration | + short duration | - |
+
+Dark's **break threshold** scales by doubling: hardness `0.5 × 2^(units − 1)`,
+so 1 unit breaks hardness 0.5, 3 units stone (1.5), and 8 units obsidian (50),
+which lets very hard modded blocks be broken by large machine streams. A
+server config ceiling on the threshold exists and is unset by default. Blocks
+with hardness −1 (unbreakable, such as bedrock) are never broken, whatever the
+threshold.
+
+**Modifier effects** apply a non-acting element's principle to the acting
+pair's result, grouped by what the action produces. Each modifier's magnitude
+scales with the units it adds, up to the caps below; these values are server
+config too. Earth and Air keep the range rules of D59/D65.
+
+| Action kind | Heat (Fire) | Collect (Water) | Preserve (Light) | Destroy (Dark) |
+| --- | --- | --- | --- | --- |
+| Block processing (Erode, Forge) | drops smelted | drops pulled to the caster | block kept whole (silk touch) | drops voided |
+| Damage (Lightning, Blight) | target set alight, 3 s per unit | target pulled toward the caster | non-lethal: never below 1 health | +25% damage per unit, ignoring armour |
+| Timed status (Constraint, Shroud, Leach, Reveal) | target burns, 3 s per unit | target pulled toward the caster | +50% duration per unit | +1 amplifier per unit, -25% duration per unit (at least 25%); Shroud and Reveal take the duration cut only |
+| Placement (Entomb, Radiance, Mist, Ward) | creatures inside set alight, 2 s per unit | creatures pulled into the area | +50% duration per unit | -25% duration per unit (at least 25%), +25% strength per unit; Entomb and Radiance also replace their target (below) |
+| Restoration (Mend, Growth, Life & Death) | +25% strength per unit | target pulled toward the caster | +50% duration per unit (a regeneration tail for Mend) | inverted: Mend harms by its heal amount, Growth regresses plants one stage, Life & Death drains energy instead of supplying it |
+
+Caps: Heat burn time 15 s; Destroy damage +100%; Preserve duration +200%;
+Destroy amplifier +3, never above the amplifier's config maximum. The
+**pull** used by Collect is the Steam impulse reversed, plus one Steam impulse
+per extra unit, under Air's cap.
+
+A Placement spell's **strength** is: Ward, its shield pool; Mist, its radius;
+Entomb, the hardness of its shell blocks. Radiance has no strength axis (its
+light level is already a ceiling), so it takes only the duration cut.
+
+**Replace target.** With Destroy, Entomb and Radiance place their temporary
+blocks **in place of** occupied positions instead of only in empty space:
+Radiance replaces the targeted block itself, and Entomb's shell replaces the
+blocks on its boundary. A replaced block must be within Dark's break
+threshold for the Destroy units, and unbreakable blocks are never replaced.
+The replaced block, including its block entity data, is saved and
+**restored** when the temporary block expires; nothing drops and nothing is
+lost.
+
+Steam (Fire + Water, motion) fits none of the five kinds: it pushes, with no
+damage, duration, or placement. It gets **no special modifier handling**: a
+Steam composition casts as bare Steam, and Heat, Collect, Preserve, and
+Destroy have no effect on it. Earth and Air still change its reach (D59/D65).
+
+**D98.** The base **reach** of every spell, player- or machine-cast, is **10
+blocks** (previously 5), so player spells work at real combat range. Earth
+and Air modifiers change it under D59/D65. A machine-cast spell's reach is
+measured from its **activator**, the block that releases it, not from the
+director feeding it, so a spell can act beyond the director-to-activator
+distance without the director being within range. The reach remains a server
+config value; worlds whose config file already exists keep their saved value
+until it is edited.
 
 ## Integration foundations
 
