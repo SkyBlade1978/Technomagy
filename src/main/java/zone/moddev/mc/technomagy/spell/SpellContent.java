@@ -171,7 +171,7 @@ public final class SpellContent {
             List.copyOf(costs),
             "all",
             SpellResources.COST_RESOLVER,
-            tags,
+            Set.copyOf(tags),
             Map.of("description", nameKey + ".description"));
     }
 

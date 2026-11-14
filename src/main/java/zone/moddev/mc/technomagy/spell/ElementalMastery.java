@@ -1,12 +1,12 @@
 package zone.moddev.mc.technomagy.spell;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.ToDoubleFunction;
-import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
 import net.minecraft.network.chat.Component;
@@ -24,6 +24,8 @@ import org.bitwisemadness.abilitycore.api.PresentationProviders;
 import org.bitwisemadness.abilityhotbar.UnlockRule;
 import org.bitwisemadness.abilityhotbar.compat.CoreMasteryCompat;
 import org.bitwisemadness.abilityhotbar.registry.MenuTabs;
+
+import org.jetbrains.annotations.Nullable;
 
 import zone.moddev.mc.technomagy.mana.ManaType;
 
@@ -51,28 +53,29 @@ final class ElementalMastery {
         "technomagy", "textures/item/spell_focus.png");
 
     /**
-     * The count chips' declared draw order (D86): Single for one element (the six entries and any
-     * future single-element ability), Duo for two, Trio for three, Quadra for four. Quadra never
-     * draws until a four-element ability exists - the strip skips a declared chip with no entries,
-     * which keeps D82's hidden-Quadra rule as the strip's own.
+     * The count chips' declared draw order (D86), derived from {@link CountChip}'s declaration
+     * order: Single for one element (the six entries and any future single-element ability), Duo
+     * for two, Trio for three, Quadra for four. Quadra never draws until a four-element ability
+     * exists - the strip skips a declared chip with no entries, which keeps D82's hidden-Quadra
+     * rule as the strip's own.
      */
-    static final List<String> COUNT_ORDER = List.of("type:single", "type:duo", "type:trio",
-        "type:quadra");
+    static final List<String> COUNT_ORDER = Arrays.stream(CountChip.values())
+        .map(chip -> chip.tag).toList();
 
     /**
-     * The count chips' art (D86): the three alchemical count symbols that wore the old tabs - the
-     * philosopher's stone for Single, the amalgam for Duo, the amalgam (alternate) for Trio, from
-     * symbols.com - now drawn on the strip's chips. Quadra declares no art: its chip never draws
-     * until a four-element ability exists (D82's rule) and no symbol has been chosen for it, so it
-     * stays text-only if it ever draws.
+     * The six entry ids, built once (D86 review): the content handler, {@link #id} and
+     * {@link #isMastery} run per menu frame and per unlock read, so the ids are never rebuilt on
+     * those paths.
      */
-    private static final Map<String, ResourceLocation> COUNT_ICONS = Map.of(
-        "type:single",
-        ResourceLocation.fromNamespaceAndPath("technomagy", "textures/gui/tab/single.png"),
-        "type:duo",
-        ResourceLocation.fromNamespaceAndPath("technomagy", "textures/gui/tab/duo.png"),
-        "type:trio",
-        ResourceLocation.fromNamespaceAndPath("technomagy", "textures/gui/tab/trio.png"));
+    private static final Map<ManaType, ResourceLocation> ENTRY_IDS;
+    static {
+        Map<ManaType, ResourceLocation> built = new EnumMap<>(ManaType.class);
+        for (ManaType element : ManaType.FLAVORS) {
+            built.put(element, ResourceLocation.fromNamespaceAndPath("technomagy",
+                tagName(element) + "_mastery"));
+        }
+        ENTRY_IDS = Map.copyOf(built);
+    }
 
     /** The meter label key (D81's presentation seam). */
     private static final String METER_LABEL = "technomagy.mastery.progress";
@@ -91,9 +94,14 @@ final class ElementalMastery {
      */
     static void declare() {
         MenuTabs.register(MAIN_TAB, "tab.technomagy.main", FOCUS_WAND_ICON, null,
-            (id, definition) -> "technomagy".equals(id.getNamespace()), content(), false);
+            (id, definition) -> isMastery(id) || PlayerSpell.find(id).isPresent(), content(),
+            false);
         MenuTabs.subCategoryOrder(MAIN_TAB, COUNT_ORDER);
-        COUNT_ICONS.forEach((typeTag, icon) -> MenuTabs.subCategoryIcon(typeTag, icon, null));
+        for (CountChip chip : CountChip.values()) {
+            if (chip.icon != null) {
+                MenuTabs.subCategoryIcon(chip.tag, chip.icon, null);
+            }
+        }
         for (ManaType element : ManaType.FLAVORS) {
             PresentationProviders.declare(id(element), ElementalMastery::present);
             // D85's display contract: the entry never casts, so these curves never apply -
@@ -120,8 +128,9 @@ final class ElementalMastery {
         return player -> {
             List<ResourceLocation> ids = new ArrayList<>();
             for (ManaType element : ManaType.FLAVORS) {
-                if (listed(player, id(element))) {
-                    ids.add(id(element));
+                ResourceLocation entry = ENTRY_IDS.get(element);
+                if (listed(player, entry)) {
+                    ids.add(entry);
                 }
             }
             for (PlayerSpell spell : PlayerSpell.values()) {
@@ -146,8 +155,7 @@ final class ElementalMastery {
      * @return the entry's stable id
      */
     static ResourceLocation id(ManaType element) {
-        return ResourceLocation.fromNamespaceAndPath("technomagy",
-            tagName(element) + "_mastery");
+        return ENTRY_IDS.get(element);
     }
 
     /**
@@ -158,12 +166,7 @@ final class ElementalMastery {
      * @return true only for the six entries' ids
      */
     static boolean isMastery(ResourceLocation abilityId) {
-        for (ManaType element : ManaType.FLAVORS) {
-            if (id(element).equals(abilityId)) {
-                return true;
-            }
-        }
-        return false;
+        return ENTRY_IDS.containsValue(abilityId);
     }
 
     /**
@@ -204,14 +207,12 @@ final class ElementalMastery {
      *             for a count no chip names - a fifth element would need a new chip here
      */
     static String countTag(int elementCount) {
-        return switch (elementCount) {
-            case 1 -> "type:single";
-            case 2 -> "type:duo";
-            case 3 -> "type:trio";
-            case 4 -> "type:quadra";
-            default -> throw new IllegalStateException(
+        CountChip[] chips = CountChip.values();
+        if (elementCount < 1 || elementCount > chips.length) {
+            throw new IllegalStateException(
                 "no count chip for an element count of " + elementCount);
-        };
+        }
+        return chips[elementCount - 1].tag;
     }
 
     /**
@@ -256,7 +257,9 @@ final class ElementalMastery {
      * server's answer decides - the element's level text and in-level fill once it has answered, an
      * empty presentation before it - never a guessed zero. It is the same {@link CoreMasteryCompat}
      * read the spells' presentations use (fenced to the local player's exchange), so this class
-     * keeps no client copy of its own. Toggle stays null because nothing here is castable.
+     * keeps no client copy of its own. The id reaches the store untransformed; the end-to-end
+     * GameTest seeds a wire answer keyed on the entry's own id, so a transformed id would answer
+     * level 0 and fail the meter. Toggle stays null because nothing here is castable.
      *
      * @param player
      *            the player whose menu is rendering (unused: the snapshot already names them)
@@ -268,30 +271,35 @@ final class ElementalMastery {
         if (!CoreMasteryCompat.answered()) {
             return new AbilityPresentation(null, List.of());
         }
-        return presentation(abilityId, CoreMasteryCompat::levelOf, CoreMasteryCompat::progressOf);
-    }
-
-    /**
-     * The pure half of {@link #present}: the id travels untransformed to the injected store readers
-     * and their answers become the meter - no client state touched. The readers are parameters so
-     * the GameTests can pin the exact id this method looks up: a transformed id (the old
-     * pool-resource id, say) would silently answer level 0 and still build a meter.
-     *
-     * @param abilityId
-     *            the entry id to look up, passed through unchanged
-     * @param levelOf
-     *            the store's own-target level reader
-     * @param progressOf
-     *            the store's in-level fill reader
-     * @return the meter presentation; never null
-     */
-    static AbilityPresentation presentation(ResourceLocation abilityId,
-        ToIntFunction<ResourceLocation> levelOf,
-        ToDoubleFunction<ResourceLocation> progressOf) {
-        int level = levelOf.applyAsInt(abilityId);
-        double fill = progressOf.applyAsDouble(abilityId);
+        int level = CoreMasteryCompat.levelOf(abilityId);
+        double fill = CoreMasteryCompat.progressOf(abilityId);
         PresentationField meter = PresentationField.progress(METER_LABEL, (float) fill,
             Component.translatable(LEVEL_VALUE, level).getString());
         return new AbilityPresentation(null, List.of(meter));
+    }
+
+    /**
+     * The four count chips: the single source for the chip tag, the declared draw order (through
+     * {@link #COUNT_ORDER}) and the art (D86 review). Declaration order IS the count order, so
+     * ordering, tagging and art cannot drift apart when a chip is added. The three symbols that
+     * wore the old tabs are the chips' art (philosopher's stone, amalgam, amalgam alternate -
+     * symbols.com); Quadra ships none - its chip never draws until a four-element ability exists
+     * (D82's rule).
+     */
+    private enum CountChip {
+        SINGLE("single", true), DUO("duo", true), TRIO("trio", true), QUADRA("quadra", false);
+
+        private final String tag;
+
+        @Nullable
+        private final ResourceLocation icon;
+
+        CountChip(String name, boolean hasArt) {
+            this.tag = "type:" + name;
+            this.icon = hasArt
+                ? ResourceLocation.fromNamespaceAndPath("technomagy",
+                    "textures/gui/tab/" + name + ".png")
+                : null;
+        }
     }
 }

@@ -1248,11 +1248,12 @@ public final class SpellGameTests {
     }
 
     /**
-     * D82 through D81's seam: an entry presents nothing before hotbar's snapshot has answered
-     * (proven through {@code present} itself), then exactly one level meter built from answered
-     * numbers driven through the pure seam - with the looked-up id recorded and asserted to be the
-     * entry's own id untransformed, so a wrong id can never silently answer level 0 (the same shape
-     * SpellMastery's meter seam takes).
+     * D81 through D86: an entry presents nothing before hotbar's snapshot has answered (proven
+     * through {@code present} itself), then exactly one level meter from a seeded wire answer
+     * driven end-to-end through {@code present} - the seed names the entry's own id, so a
+     * transformed id would answer level 0 and fail the meter - and the shared exchange is cleared
+     * in {@code finally} (its whole store: safe only because this headless server runs no client
+     * that could answer it).
      */
     @GameTest(template = "empty")
     public static void masteryEntriesPresentFromTheElementSnapshot(GameTestHelper h) {
@@ -1261,28 +1262,8 @@ public final class SpellGameTests {
         var before = PresentationProviders.present(caster, fire);
         h.assertTrue(before.isPresent() && before.get().fields().isEmpty(),
             "Before the answer the entry must present nothing, got " + before);
-        AtomicReference<ResourceLocation> lookedUp = new AtomicReference<>();
-        var after = ElementalMastery.presentation(fire,
-            id -> {
-                lookedUp.set(id);
-                return 4;
-            },
-            id -> 0.5);
-        h.assertTrue(after.fields().size() == 1,
-            "An answered entry must present exactly one meter, got " + after);
-        var meter = after.fields().get(0);
-        h.assertTrue(meter.kind() == PresentationField.Kind.PROGRESS,
-            "The entry field must render as a meter, got " + meter.kind());
-        h.assertTrue(Math.abs(meter.progress() - 0.5f) < 1.0e-6,
-            "The meter must carry the snapshot's fill, got " + meter.progress());
-        h.assertTrue(meter.value().endsWith("4"),
-            "The meter must name level 4, got '" + meter.value() + "'");
-        h.assertTrue(fire.equals(lookedUp.get()),
-            "The seam must look up the entry's own id untransformed, got " + lookedUp.get());
         // Answered path end-to-end (review of D81): seed the exchange exactly as a client sees
         // it - record the pending echo, post core's wire answer - and drive present() itself.
-        // The seeded entry names the entry's own id, so present() handing a transformed id to
-        // the store would answer level 0 and fail the meter assertions here.
         try {
             CoreMasteryCompat.markRequested(caster.getUUID(), 0L);
             NeoForge.EVENT_BUS.post(new MasteryQueryAnsweredEvent(new MasteryQueryResponse(
@@ -1294,14 +1275,17 @@ public final class SpellGameTests {
             var live = PresentationProviders.present(caster, fire);
             h.assertTrue(live.isPresent() && live.get().fields().size() == 1,
                 "The answered entry must present exactly one meter through present, got " + live);
-            var liveMeter = live.get().fields().get(0);
-            h.assertTrue(Math.abs(liveMeter.progress() - 0.5f) < 1.0e-6,
-                "The meter must carry the seeded fill 0.5, got " + liveMeter.progress());
-            h.assertTrue(liveMeter.value().endsWith("4"),
-                "The meter must name the seeded level 4, got '" + liveMeter.value() + "'");
+            var meter = live.get().fields().get(0);
+            h.assertTrue(meter.kind() == PresentationField.Kind.PROGRESS,
+                "The entry field must render as a meter, got " + meter.kind());
+            h.assertTrue(Math.abs(meter.progress() - 0.5f) < 1.0e-6,
+                "The meter must carry the seeded fill 0.5, got " + meter.progress());
+            h.assertTrue(meter.value().endsWith("4"),
+                "The meter must name the seeded level 4, got '" + meter.value() + "'");
         } finally {
-            // The exchange is shared static state: clear it before the next test reads the
-            // unanswered gate (hotbar alpha.21's logout seam), whatever the asserts above did.
+            // reset() clears hotbar's WHOLE shared exchange, not just this seed - safe only
+            // because this headless GameTest server runs no client that could answer the store;
+            // a future client-side or integration run sharing this JVM state must not lean on it.
             CoreMasteryCompat.reset();
         }
         h.assertTrue(!CoreMasteryCompat.answered(),

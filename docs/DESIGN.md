@@ -1185,9 +1185,9 @@ consults the provider before it.
 
 **What the entries read.** The six are pure presentations of the
 element pools D80 routes into - the entry's own `ABILITY` XP, whose
-level `MasteryView` already folds as `share x level` into each
-containing spell's aggregate - 0.2 for a duo spell, 0.4/3 for Growth -
-feeding the POWER/DURATION curve. Each entry presents one `PROGRESS`
+level `MasteryView` folds at full strength into each containing
+spell's aggregate (every share target at its own level since core
+alpha.14, D80) - feeding the POWER/DURATION curve. Each entry presents one `PROGRESS`
 field through D81's `PresentationProvider` seam: the element's level
 text inside the meter and its in-level fill, sourced from the entry's
 own row of the answered mastery snapshot (D85) - read through hotbar's
@@ -1395,14 +1395,21 @@ snapshot's bonuses; `build` and all 50 GameTests stay green.
 
 **D86.** One Technomagy tab with count chips, superseding D82's
 four-tab strip: hotbar draws a single `technomagy:main` tab accepting
-every id of ours (namespace guard - `technomagy` ids only), wearing
+exactly our twenty-two abilities (the six entries and the sixteen
+spells - the same set `content()` lists, so a future non-spell
+`technomagy` id never lands chipless in the tab), wearing
 the focus wand's own texture (`textures/item/spell_focus.png` - the
 item instance cannot be built at mod-construction time, before
 registry events hand out items, so the tab wears the item's art
 directly). The former Single/Duo/Trio/Quadra tabs become the filter
 strip's `type:` count chips, declared in draw order as `type:single`
 (the six entries and any future single-element ability), `type:duo`,
-`type:trio`, `type:quadra`.
+`type:trio`, `type:quadra`. Element vocabulary never draws as chips:
+hotbar's strip reads only `type:`-prefixed tags
+(`MenuQuery.subTypeTags` filters on the prefix), so the unprefixed
+element tags stay definition self-description - the input `countTag`
+derives from - and dropping their order and sprites changed no
+render.
 
 The strip's own rules replace D82's: a declared chip with no entries
 simply never draws - Quadra's hidden-until-a-four-element-ability rule
