@@ -1446,6 +1446,121 @@ listing all twenty-two ids); `check` and all 50 GameTests stay green.
 The menu itself is client render: honest scope is the user's in-game
 check, stated as such.
 
+### Mana links
+
+D87-D93 design D21-D23 and D28: how players link directors and prisms, what a
+link carries, how it moves, and how it is drawn. Values marked *(config)* are
+server or client config entries whose stated value is the default.
+
+**D87.** **Making links.** The focus (D73) has a **linking mode**, toggled by
+Sneak + the element-selection key (default `.`). The mode is saved on the held
+focus beside its element selection, the server validates the held device, and
+the action bar names the new mode. In linking mode, using the focus on block
+A and then on block B makes a **directed link A -> B**; doing it again on a
+linked pair removes the link. A link's endpoints are node directors, prisms,
+and any block exposing the mana capability (D24), such as the Raw mana
+source. A link is stored on its source block and is at most **16 blocks**
+long *(config)*. Creating it needs a clear line of sight between the
+endpoints; if the line is obstructed later, the link **pauses** (it is kept
+and moves nothing) until the line clears. Removing either endpoint removes
+the link and drops any rate upgrade fitted to it (D90).
+
+**D88.** **Link filters.** A new link takes the focus's current **filter**.
+Selecting an element or Raw in the D73 selector sets the filter to that pure
+type. Two actions set a **compound filter** instead: in linking mode, using
+the focus on a flowing beam **imprints** that beam's stream, and the hotbar's
+selected spell (one of the sixteen) can be taken as the filter, using its
+built-in stream. A filtered link carries only packets that match its filter
+**exactly by construction**:
+
+- The match compares the stream's **merge structure** (D37): the same tree
+  shape with the same element in each slot. Primary and secondary are
+  distinct, so `Erode -> Forge` does not match `Forge -> Erode` (D52), and
+  a stream built as 2 Fire merged with 1 Water does not match Steam merged
+  with Fire.
+- **Unit amounts are ignored**: 3 Fire + 1 Water matches a 2 Fire + 1 Water
+  filter when both were built the same way.
+- A subtree holding only one flavor counts as a single input of that flavor
+  (D32: Fire + Fire is still pure Fire), so a 2-Fire input from a source and
+  a Fire + Fire prism merge match the same filter.
+- A pure-type filter matches only a pure stream of that type; Raw matches
+  only Raw.
+
+A prism's outgoing links are **unfiltered**: the prism decides what goes where
+(D89).
+
+**D89.** **Transfer** is in **pulses**, every **10 ticks** *(config)*. Each
+pulse a link moves up to its **rate** in **whole packets**; a packet is one
+structured stream (D37) and is never cut. The base rate is **1 packet per
+pulse**; upgrades raise it (D90). A link drawing from a flat mana handler takes
+one single-element packet of at most **1 unit** *(config)* of its filter's
+type.
+
+- A **node director** holds up to **8 packets** *(config)* in arrival order.
+  Each pulse it sends the earliest packet that some outgoing link admits,
+  round-robin among the links that admit it. A packet no link admits waits
+  without blocking later packets. A full director refuses new packets. This
+  answers P2: **only prisms merge**; a director never merges packets.
+- A **combine prism** accepts exactly two incoming links: the first made
+  feeds the **primary** slot and the second the **secondary** (D52); a third
+  is refused. Each slot holds one packet. When both hold one, the prism emits
+  their merge, primary first, to its one outgoing link.
+- A **split prism** accepts one incoming link. It undoes the packet's most
+  recent merge (D26, D37): the primary part goes to its first outgoing link,
+  the secondary to its second. A Raw packet splits into six single-flavor
+  packets in one step (D27), each sent to the outgoing link filtered to that
+  flavor, so splitting Raw needs one such link per flavor. A packet the
+  prism cannot split (a single-element input) is refused at the link.
+
+`IManaHandler` gains packet methods with default implementations: offering a
+packet to a flat handler flattens it to its element totals and is accepted
+only whole; taking a packet from a flat handler takes one single-element
+input. Raw crosses this boundary at D47's convention (one Raw unit holds one
+of each flavor), converting the flat model's legacy six-units-per-set Raw
+explicitly.
+
+**D90.** **Rate upgrades** are three items that raise one link to **2, 4, and
+8** packets per pulse; each needs the tier below it fitted first. A player
+fits one by using it while looking at the beam: the client picks the link
+under the crosshair and the server re-validates the link, the reach, and the
+tier before consuming the item. Removing the link drops its upgrade.
+
+**D91.** **Beam rendering** is fully **procedural**: geometry and vertex
+colour only, with no texture files. A flowing link is drawn as a **braid**:
+
+- One glowing **strand per flavor** in the packet in flight, coloured with
+  the HUD's flavor colours, its thickness scaled by that flavor's share of
+  the packet. Raw is six thin strands of equal thickness (D15). A life &
+  death pair (D35) is a Light and a Dark strand wound tightly around each
+  other.
+- The braid's centre line **wanders** gently in three dimensions around the
+  straight line between the endpoints, tapering to the exact endpoints so
+  the stream visibly leaves and enters the blocks. The wander is seeded
+  from the link's endpoints, so every player sees the same path.
+- A **helix** or **double helix** winds around the strands and fades in and
+  out of visibility along the beam and over time.
+- **Motes** travel from source to target at the pulse rate.
+- A stream leaves and enters a **prism** at the ends of its glass bar, and a
+  **director** at its glass tip. At a combine prism the two incoming
+  braids converge into the bar, and the output braid carries both
+  packets' strands; at a split prism the outgoing braids each carry their
+  part.
+- An **idle** link (nothing moved for 2 pulses) is drawn as a faint neutral
+  thread, visible only to a player holding the focus. A **paused** link
+  (D87) flickers for those players.
+
+Wander amplitude, helix frequency, mote density, and a reduced-effects switch
+are client config.
+
+**D92.** **Sync.** The server sends a link's beam state to clients only when it
+changes: the link set, a paused or idle transition, or a change in the
+in-flight packet's **construction** (D88 shape and flavor shares), never on
+every pulse. Clients animate between changes locally.
+
+**D93.** Dropout along a beam (D38, D67) and overload (D53) are **not**
+applied by links yet: their rates and manifestations are still to be
+tuned. Links move packets losslessly until those are designed.
+
 ### Spell recipes
 
 D94-D98 define spells as JSON recipes, the order-free heuristic for compositions
