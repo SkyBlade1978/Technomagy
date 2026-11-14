@@ -1138,9 +1138,10 @@ public final class SpellGameTests {
     }
 
     /**
-     * D82: three tabs classify by element count, every ability carries a tag per component element,
-     * and the six elemental entries register as non-castable single-element abilities with their
-     * alchemical icons declared.
+     * D82 through D86: the one Technomagy tab wears the focus-wand icon and accepts our ids, the
+     * four count chips are declared in order, every ability carries its element tags plus its
+     * {@code type:} count chip, and the six elemental entries register as non-castable
+     * single-element abilities with D85's pane declaration.
      */
     @GameTest(template = "empty")
     public static void masteryTabsOrganizeByElementCount(GameTestHelper h) {
@@ -1154,9 +1155,10 @@ public final class SpellGameTests {
             h.assertTrue(entry.costs().isEmpty(), "Entries must declare no costs");
             h.assertTrue("static".equals(entry.amountResolver()),
                 "Entries must never price, got " + entry.amountResolver());
-            h.assertTrue(entry.tags().size() == 1
-                && entry.tags().contains(ElementalMastery.tagName(flavor)),
-                "An entry carries its one element tag, got " + entry.tags());
+            h.assertTrue(entry.tags().size() == 2
+                && entry.tags().contains(ElementalMastery.tagName(flavor))
+                && entry.tags().contains("type:single"),
+                "An entry carries its element tag and type:single chip, got " + entry.tags());
             h.assertTrue(entry.description().isPresent(),
                 "An entry must describe its boost for " + flavor);
             // D85: the pane's display contract - exactly POWER and DURATION, and the
@@ -1183,45 +1185,38 @@ public final class SpellGameTests {
                     + row.get().bonuses());
         }
         var mend = registry.get(PlayerSpell.MEND.id());
-        h.assertTrue(mend.tags().size() == 2
-            && mend.tags().containsAll(Set.of("water", "light")),
-            "Mend must carry its two element tags, got " + mend.tags());
+        h.assertTrue(mend.tags().size() == 3
+            && mend.tags().containsAll(Set.of("water", "light", "type:duo")),
+            "Mend must carry its two element tags and type:duo, got " + mend.tags());
         var growth = registry.get(PlayerSpell.GROWTH.id());
-        h.assertTrue(growth.tags().size() == 3,
-            "Growth must carry its three element tags, got " + growth.tags());
+        h.assertTrue(growth.tags().size() == 4 && growth.tags().contains("type:trio"),
+            "Growth must carry its three element tags and type:trio, got " + growth.tags());
         var fire = ElementalMastery.id(ManaType.FIRE);
         var fireEntry = registry.get(fire);
-        var single = MenuTabs.get(ElementalMastery.SINGLE_TAB).orElseThrow();
-        var duo = MenuTabs.get(ElementalMastery.DUO_TAB).orElseThrow();
-        var trio = MenuTabs.get(ElementalMastery.TRIO_TAB).orElseThrow();
-        h.assertTrue(single.accepts().test(fire, fireEntry),
-            "Single must list the entries");
-        h.assertTrue(!single.accepts().test(PlayerSpell.MEND.id(), mend),
-            "Single must not list a duo spell");
-        h.assertTrue(duo.accepts().test(PlayerSpell.MEND.id(), mend), "Duo must list Mend");
-        h.assertTrue(!duo.accepts().test(fire, fireEntry), "Duo must not list an entry");
-        h.assertTrue(!duo.accepts().test(PlayerSpell.GROWTH.id(), growth),
-            "Duo must not list a trio spell");
-        h.assertTrue(trio.accepts().test(PlayerSpell.GROWTH.id(), growth),
-            "Trio must list Growth");
-        h.assertTrue(!trio.accepts().test(PlayerSpell.MEND.id(), mend),
-            "Trio must not list a duo spell");
-        h.assertTrue(
-            MenuTabs.subCategoryOrder(ElementalMastery.SINGLE_TAB).size() == ManaType.FLAVORS
-                .size(),
-            "Each tab must declare the six element chips in order");
-        h.assertTrue(MenuTabs.subCategoryIcon("fire").isPresent(),
-            "The element chips must carry their alchemical icons");
-        h.assertTrue(single.iconId() != null
-            && single.iconId().getPath().contains("tab/single.png")
-            && resourceExists(single.iconId()),
-            "Single must wear the philosopher's stone, got " + single.iconId());
-        h.assertTrue(duo.iconId() != null && duo.iconId().getPath().contains("tab/duo.png")
-            && resourceExists(duo.iconId()),
-            "Duo must wear the amalgam, got " + duo.iconId());
-        h.assertTrue(trio.iconId() != null && trio.iconId().getPath().contains("tab/trio.png")
-            && resourceExists(trio.iconId()),
-            "Trio must wear the amalgam alternate, got " + trio.iconId());
+        var tab = MenuTabs.get(ElementalMastery.MAIN_TAB).orElseThrow();
+        h.assertTrue(tab.accepts().test(fire, fireEntry),
+            "The Technomagy tab must list the entries");
+        h.assertTrue(tab.accepts().test(PlayerSpell.MEND.id(), mend),
+            "The Technomagy tab must list our spells");
+        h.assertTrue(!tab.accepts().test(ResourceLocation.fromNamespaceAndPath("othermod", "spark"),
+            fireEntry), "The Technomagy tab must reject foreign ids");
+        h.assertTrue(MenuTabs.subCategoryOrder(ElementalMastery.MAIN_TAB)
+            .equals(ElementalMastery.COUNT_ORDER),
+            "The tab must declare the four count chips in order, got "
+                + MenuTabs.subCategoryOrder(ElementalMastery.MAIN_TAB));
+        h.assertTrue(tab.iconId() != null
+            && tab.iconId().getPath().equals("textures/item/spell_focus.png")
+            && resourceExists(tab.iconId()),
+            "The tab must wear the focus wand, got " + tab.iconId());
+        h.assertTrue(MenuTabs.subCategoryIcon("type:single").isPresent()
+            && MenuTabs.subCategoryIcon("type:duo").isPresent()
+            && MenuTabs.subCategoryIcon("type:trio").isPresent(),
+            "The three drawable count chips must carry their alchemical art");
+        var singleChip = MenuTabs.subCategoryIcon("type:single").orElseThrow();
+        h.assertTrue(singleChip.iconId() != null && resourceExists(singleChip.iconId()),
+            "The Single chip's art must ship on the classpath, got " + singleChip.iconId());
+        h.assertTrue(MenuTabs.subCategoryIcon("type:quadra").isEmpty(),
+            "Quadra keeps no art until its chip can draw");
         for (PlayerSpell spell : PlayerSpell.values()) {
             var icon = registry.get(spell.id()).iconId();
             h.assertTrue(icon != null
@@ -1233,15 +1228,12 @@ public final class SpellGameTests {
         }
         h.assertTrue(IconProviders.iconFor(null, PlayerSpell.MEND.id()).isEmpty(),
             "A dedicated server abstains from icon generation; the static icon stands");
-        var quadra = MenuTabs.get(ElementalMastery.QUADRA_TAB).orElseThrow();
-        h.assertTrue(quadra.iconId() == null,
-            "Quadra has no chosen symbol yet and stays text-only");
-        h.assertTrue(!quadra.accepts().test(PlayerSpell.MEND.id(), mend),
-            "Quadra must not accept a duo spell");
-        h.assertTrue(!quadra.accepts().test(PlayerSpell.GROWTH.id(), growth),
-            "Quadra must not accept a trio spell");
-        h.assertTrue(quadra.content() != null && quadra.content().entries(null).isEmpty(),
-            "Quadra lists nothing until a four-element ability exists");
+        h.assertTrue(ElementalMastery.COUNT_ORDER.contains("type:quadra"),
+            "Quadra keeps its declared chip for a future four-element ability");
+        for (PlayerSpell spell : PlayerSpell.values()) {
+            h.assertTrue(!registry.get(spell.id()).tags().contains("type:quadra"),
+                spell + " must not wear type:quadra until a four-element ability exists");
+        }
         h.succeed();
     }
 
@@ -1256,11 +1248,12 @@ public final class SpellGameTests {
     }
 
     /**
-     * D82 through D81's seam: an entry presents nothing before hotbar's snapshot has answered
-     * (proven through {@code present} itself), then exactly one level meter built from answered
-     * numbers driven through the pure seam - with the looked-up id recorded and asserted to be the
-     * entry's own id untransformed, so a wrong id can never silently answer level 0 (the same shape
-     * SpellMastery's meter seam takes).
+     * D81 through D86: an entry presents nothing before hotbar's snapshot has answered (proven
+     * through {@code present} itself), then exactly one level meter from a seeded wire answer
+     * driven end-to-end through {@code present} - the seed names the entry's own id, so a
+     * transformed id would answer level 0 and fail the meter - and the shared exchange is cleared
+     * in {@code finally} (its whole store: safe only because this headless server runs no client
+     * that could answer it).
      */
     @GameTest(template = "empty")
     public static void masteryEntriesPresentFromTheElementSnapshot(GameTestHelper h) {
@@ -1269,28 +1262,8 @@ public final class SpellGameTests {
         var before = PresentationProviders.present(caster, fire);
         h.assertTrue(before.isPresent() && before.get().fields().isEmpty(),
             "Before the answer the entry must present nothing, got " + before);
-        AtomicReference<ResourceLocation> lookedUp = new AtomicReference<>();
-        var after = ElementalMastery.presentation(fire,
-            id -> {
-                lookedUp.set(id);
-                return 4;
-            },
-            id -> 0.5);
-        h.assertTrue(after.fields().size() == 1,
-            "An answered entry must present exactly one meter, got " + after);
-        var meter = after.fields().get(0);
-        h.assertTrue(meter.kind() == PresentationField.Kind.PROGRESS,
-            "The entry field must render as a meter, got " + meter.kind());
-        h.assertTrue(Math.abs(meter.progress() - 0.5f) < 1.0e-6,
-            "The meter must carry the snapshot's fill, got " + meter.progress());
-        h.assertTrue(meter.value().endsWith("4"),
-            "The meter must name level 4, got '" + meter.value() + "'");
-        h.assertTrue(fire.equals(lookedUp.get()),
-            "The seam must look up the entry's own id untransformed, got " + lookedUp.get());
         // Answered path end-to-end (review of D81): seed the exchange exactly as a client sees
         // it - record the pending echo, post core's wire answer - and drive present() itself.
-        // The seeded entry names the entry's own id, so present() handing a transformed id to
-        // the store would answer level 0 and fail the meter assertions here.
         try {
             CoreMasteryCompat.markRequested(caster.getUUID(), 0L);
             NeoForge.EVENT_BUS.post(new MasteryQueryAnsweredEvent(new MasteryQueryResponse(
@@ -1302,14 +1275,17 @@ public final class SpellGameTests {
             var live = PresentationProviders.present(caster, fire);
             h.assertTrue(live.isPresent() && live.get().fields().size() == 1,
                 "The answered entry must present exactly one meter through present, got " + live);
-            var liveMeter = live.get().fields().get(0);
-            h.assertTrue(Math.abs(liveMeter.progress() - 0.5f) < 1.0e-6,
-                "The meter must carry the seeded fill 0.5, got " + liveMeter.progress());
-            h.assertTrue(liveMeter.value().endsWith("4"),
-                "The meter must name the seeded level 4, got '" + liveMeter.value() + "'");
+            var meter = live.get().fields().get(0);
+            h.assertTrue(meter.kind() == PresentationField.Kind.PROGRESS,
+                "The entry field must render as a meter, got " + meter.kind());
+            h.assertTrue(Math.abs(meter.progress() - 0.5f) < 1.0e-6,
+                "The meter must carry the seeded fill 0.5, got " + meter.progress());
+            h.assertTrue(meter.value().endsWith("4"),
+                "The meter must name the seeded level 4, got '" + meter.value() + "'");
         } finally {
-            // The exchange is shared static state: clear it before the next test reads the
-            // unanswered gate (hotbar alpha.21's logout seam), whatever the asserts above did.
+            // reset() clears hotbar's WHOLE shared exchange, not just this seed - safe only
+            // because this headless GameTest server runs no client that could answer the store;
+            // a future client-side or integration run sharing this JVM state must not lean on it.
             CoreMasteryCompat.reset();
         }
         h.assertTrue(!CoreMasteryCompat.answered(),
@@ -1318,37 +1294,41 @@ public final class SpellGameTests {
     }
 
     /**
-     * D83: a tab's live content lists only proven-learned abilities - Duo and Trio stay out of
-     * their category until their elements qualify - and an unknown answer lists rather than
-     * guessing a lockout.
+     * D83 through D86: the one Technomagy tab's live content lists only proven-learned abilities -
+     * the six entries always, spells out until their elements qualify - and an unknown answer lists
+     * rather than guessing a lockout.
      */
     @GameTest(template = "empty")
     public static void tabContentListsOnlyLearned(GameTestHelper h) {
         ServerPlayer player = player(h, PlayerSpell.MEND);
-        var single = MenuTabs.get(ElementalMastery.SINGLE_TAB).orElseThrow().content();
-        var duo = MenuTabs.get(ElementalMastery.DUO_TAB).orElseThrow().content();
-        var trio = MenuTabs.get(ElementalMastery.TRIO_TAB).orElseThrow().content();
-        h.assertTrue(single != null && duo != null && trio != null,
-            "Each tab must declare its live content");
-        h.assertTrue(single.entries(player).size() == ManaType.FLAVORS.size(),
-            "Single always lists its six entries");
-        h.assertTrue(duo.entries(player).isEmpty(),
-            "Duo must list nothing until an element reaches unlockDuoLevel");
-        h.assertTrue(trio.entries(player).isEmpty(),
-            "Trio must list nothing until every element reaches unlockTrioLevel");
-        // Water and Light to level 10: Mend appears, Lightning (Fire/Air) stays out
+        var content = MenuTabs.get(ElementalMastery.MAIN_TAB).orElseThrow().content();
+        h.assertTrue(content != null, "The tab must declare its live content");
+        var early = content.entries(player);
+        h.assertTrue(early.size() == ManaType.FLAVORS.size(),
+            "Before any spell qualifies the tab lists the six entries, got " + early);
+        h.assertTrue(!early.contains(PlayerSpell.MEND.id()),
+            "Mend must stay out until Water and Light reach unlockDuoLevel");
+        h.assertTrue(!early.contains(PlayerSpell.GROWTH.id()),
+            "Growth must stay out until every element reaches unlockTrioLevel");
+        // Water and Light to level 10: Mend appears, Lightning (Fire/Air) and the
+        // earth-third Growth stay out
         MasteryAwards.awardTo(player,
             MasteryTarget.ability(ElementalMastery.id(ManaType.WATER)), 1025.0);
         MasteryAwards.awardTo(player,
             MasteryTarget.ability(ElementalMastery.id(ManaType.LIGHT)), 1025.0);
-        var duoIds = duo.entries(player);
-        h.assertTrue(duoIds.contains(PlayerSpell.MEND.id()),
+        var learned = content.entries(player);
+        h.assertTrue(learned.contains(PlayerSpell.MEND.id()),
             "Mend must list once Water and Light qualify");
-        h.assertTrue(!duoIds.contains(PlayerSpell.LIGHTNING.id()),
+        h.assertTrue(!learned.contains(PlayerSpell.LIGHTNING.id()),
             "Lightning must stay out while Air is unlearned");
-        h.assertTrue(duoIds.size() == 1, "Only Mend qualifies, got " + duoIds);
-        h.assertTrue(duo.entries(null).size() == PlayerSpell.values().length - 1,
-            "An unknown answer must list every duo spell rather than guess a lockout");
+        h.assertTrue(!learned.contains(PlayerSpell.GROWTH.id()),
+            "Growth must stay out while one of its three elements is unlearned");
+        h.assertTrue(learned.size() == ManaType.FLAVORS.size() + 1,
+            "Exactly six entries plus Mend qualify, got " + learned);
+        h.assertTrue(
+            content.entries(null).size() == ManaType.FLAVORS.size() + PlayerSpell.values().length,
+            "An unknown answer must list every id rather than guess a lockout, got "
+                + content.entries(null).size());
         h.succeed();
     }
 

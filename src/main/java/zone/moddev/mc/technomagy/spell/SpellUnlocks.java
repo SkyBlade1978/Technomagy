@@ -22,9 +22,10 @@ import zone.moddev.mc.technomagy.mana.ManaType;
  * The unlock verdicts for all twenty-two abilities (D83): Single (the six entries and any
  * one-element ability) is learned from the start; Duo needs every component element's mastery at
  * {@code mastery.unlockDuoLevel}; Trio at {@code mastery.unlockTrioLevel}. The server reads the
- * element buckets from the player's attachments, the client reads D82's answered snapshot plus the
- * threshold payload, and both abstain to unknown rather than guess - hotbar hides and refuses only
- * a proven {@code false} (ability-hotbar#135).
+ * entries' own `ABILITY` pools from the player's attachments (D85's storage), the client reads
+ * hotbar's answered snapshot store ({@code CoreMasteryCompat}) plus the threshold payload, and both
+ * abstain to unknown rather than guess - hotbar hides and refuses only a proven {@code false}
+ * (ability-hotbar#135).
  */
 final class SpellUnlocks {
 
