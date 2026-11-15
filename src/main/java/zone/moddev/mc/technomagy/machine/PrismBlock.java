@@ -5,6 +5,7 @@ import java.util.Locale;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.StringRepresentable;
@@ -14,8 +15,12 @@ import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -34,13 +39,15 @@ import org.jetbrains.annotations.Nullable;
  * the middle of the bar.
  *
  * <p>
- * So far it is only the block: it has no block entity and moves no mana. Splitting and combining
- * will use {@link zone.moddev.mc.technomagy.mana.Mana}'s lossless operations when links exist.
+ * Its {@link PrismBlockEntity} holds its links, ports and slots and does the splitting and
+ * combining on each transfer pulse (D89).
  *
  * <p>
- * Using it with an empty hand switches modes. That is a stand-in until the wand (D23) exists.
+ * Using it with an empty hand switches modes, releasing anything the prism held (see
+ * {@link PrismBlockEntity#modeChanged}). The focus's linking mode makes links (D87); mode switching
+ * stays on the empty hand.
  */
-public class PrismBlock extends Block {
+public class PrismBlock extends Block implements EntityBlock {
     /** The direction the glass bar points: away from the player who placed it. */
     public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
 
@@ -93,7 +100,7 @@ public class PrismBlock extends Block {
 
     /**
      * Switches between split and combine, with a click sound and an action bar message naming the
-     * new mode. The stand-in for the wand (D23).
+     * new mode, then releases anything the prism held under the old mode.
      */
     @Override
     protected InteractionResult useWithoutItem(
@@ -101,6 +108,10 @@ public class PrismBlock extends Block {
         if (!level.isClientSide) {
             Mode mode = state.getValue(MODE).other();
             level.setBlockAndUpdate(pos, state.setValue(MODE, mode));
+            if (level instanceof ServerLevel server
+                && level.getBlockEntity(pos) instanceof PrismBlockEntity prism) {
+                prism.modeChanged(server);
+            }
             level.playSound(
                 null, pos, SoundEvents.COPPER_BULB_TURN_ON, SoundSource.BLOCKS, 1.0f, 1.0f);
             player.displayClientMessage(
@@ -121,6 +132,55 @@ public class PrismBlock extends Block {
     @Override
     protected BlockState mirror(BlockState state, Mirror mirror) {
         return rotate(state, mirror.getRotation(state.getValue(FACING)));
+    }
+
+    /**
+     * Creates this block's {@link PrismBlockEntity}.
+     *
+     * @param pos
+     *            the position
+     * @param state
+     *            the block state
+     * @return the new block entity
+     */
+    @Override
+    public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+        return new PrismBlockEntity(pos, state);
+    }
+
+    /**
+     * Ticks the block entity on the server only; clients just draw the synced beams (D92).
+     *
+     * @param level
+     *            the level
+     * @param state
+     *            the block state
+     * @param type
+     *            the block entity type being ticked
+     * @return the server ticker, or null on the client or for another type
+     */
+    @Override
+    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(
+        Level level, BlockState state, BlockEntityType<T> type) {
+        if (level.isClientSide || type != MachineContent.PRISM_ENTITY.get()) {
+            return null;
+        }
+        return (tickLevel, pos, tickState, entity) -> ((ManaNodeBlockEntity) entity)
+            .serverTick((ServerLevel) tickLevel);
+    }
+
+    /**
+     * When the block is broken or replaced (not merely changing state), releases what the node
+     * holds and removes its links (D87).
+     */
+    @Override
+    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState,
+        boolean movedByPiston) {
+        if (!state.is(newState.getBlock()) && level instanceof ServerLevel server
+            && level.getBlockEntity(pos) instanceof ManaNodeBlockEntity node) {
+            node.broken(server);
+        }
+        super.onRemove(state, level, pos, newState, movedByPiston);
     }
 
     /** Declares {@link #FACING} and {@link #MODE}. */

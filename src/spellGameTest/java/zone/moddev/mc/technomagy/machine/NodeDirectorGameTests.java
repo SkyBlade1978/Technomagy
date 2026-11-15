@@ -1,5 +1,7 @@
 package zone.moddev.mc.technomagy.machine;
 
+import java.util.Optional;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
@@ -15,11 +17,16 @@ import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
+import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
+
+import zone.moddev.mc.technomagy.mana.ManaPacket;
+import zone.moddev.mc.technomagy.mana.ManaType;
 
 /** Actual block interaction, placement, transform, and saved-state checks for D21 and D23. */
 @GameTestHolder("technomagy")
@@ -89,6 +96,43 @@ public final class NodeDirectorGameTests {
         helper.succeed();
     }
 
+    /** A preview-era block without saved entity data acquires a ticker and clears stale power. */
+    @GameTest(template = "empty")
+    public static void previewChunkCreatesMissingEntity(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var relative = new BlockPos(1, 1, 1);
+        var absolute = helper.absolutePos(relative);
+        var state = MachineContent.NODE_DIRECTOR.get().defaultBlockState()
+            .setValue(NodeDirectorBlock.HANGING, true)
+            .setValue(NodeDirectorBlock.DIRECTION, NodeDirectorBlock.Bearing.SOUTH_WEST)
+            .setValue(NodeDirectorBlock.POWERED, true);
+        helper.setBlock(relative, state);
+        level.removeBlockEntity(absolute);
+        var chunk = level.getChunkAt(absolute);
+        helper.assertTrue(
+            chunk.getBlockEntity(absolute, LevelChunk.EntityCreationType.CHECK) == null,
+            "The legacy fixture must have no saved block entity");
+        NodeDirectorLightUpdates.onChunkLoad(new ChunkEvent.Load(chunk, false));
+        helper.runAfterDelay(2, () -> {
+            var entity = chunk.getBlockEntity(absolute, LevelChunk.EntityCreationType.CHECK);
+            helper.assertTrue(entity instanceof NodeDirectorBlockEntity,
+                "Chunk migration must create and register the missing director entity");
+            helper.assertTrue(
+                level.getBlockState(absolute) == state.setValue(NodeDirectorBlock.POWERED, false),
+                "Chunk migration must clear stale power while retaining the mounting and bearing");
+            helper.assertTrue(((NodeDirectorBlockEntity) entity).handler()
+                .receivePacket(ManaPacket.leaf(ManaType.FIRE, 1), false),
+                "The migrated director must accept mana");
+            helper.runAfterDelay((MachineConfig.IDLE_PULSES.get() + 2)
+                * MachineConfig.PULSE_INTERVAL.get(), () -> {
+                    helper.assertTrue(
+                        !level.getBlockState(absolute).getValue(NodeDirectorBlock.POWERED),
+                        "The migrated director's registered ticker must clear idle power");
+                    helper.succeed();
+                });
+        });
+    }
+
     /** Placement sectors, negative yaw, rotation, mirrors, and adventure restrictions agree. */
     @GameTest(template = "empty")
     public static void placementAndTransforms(GameTestHelper helper) {
@@ -152,8 +196,10 @@ public final class NodeDirectorGameTests {
         helper.setBlock(relative, off);
         helper.assertTrue(!off.getValue(NodeDirectorBlock.POWERED)
             && off.getLightEmission(level, absolute) == 0, "A standalone director must be unlit");
-        var on = off.setValue(NodeDirectorBlock.POWERED, true);
-        level.setBlockAndUpdate(absolute, on);
+        var node = (NodeDirectorBlockEntity) level.getBlockEntity(absolute);
+        helper.assertTrue(node.handler().receivePacket(ManaPacket.leaf(ManaType.FIRE, 1), false),
+            "Director must accept a real packet");
+        var on = level.getBlockState(absolute);
         helper.assertTrue(on.getLightEmission(level, absolute) == 6,
             "Powered directors must emit light level six");
         helper.startSequence()
@@ -161,11 +207,91 @@ public final class NodeDirectorGameTests {
                 level.getBrightness(LightLayer.BLOCK, absolute) == 6,
                 "Powered light has not propagated; observed "
                     + level.getBrightness(LightLayer.BLOCK, absolute)))
-            .thenExecute(() -> level.setBlockAndUpdate(absolute, off))
+            .thenWaitUntil(() -> helper.assertTrue(
+                !level.getBlockState(absolute).getValue(NodeDirectorBlock.POWERED),
+                "An idle director must turn off without an operator changing its state"))
             .thenWaitUntil(() -> helper.assertTrue(
                 level.getBrightness(LightLayer.BLOCK, absolute) == 0,
                 "Unpowered light has not cleared; observed "
                     + level.getBrightness(LightLayer.BLOCK, absolute)))
             .thenSucceed();
+    }
+
+    /** Simulations and refused packets cannot activate or prolong a stalled director's light. */
+    @GameTest(template = "empty", timeoutTicks = 200)
+    public static void simulationsAndRefusalsStayDark(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var relative = new BlockPos(1, 1, 1);
+        var pos = helper.absolutePos(relative);
+        helper.setBlock(relative, MachineContent.NODE_DIRECTOR.get());
+        var node = (NodeDirectorBlockEntity) level.getBlockEntity(pos);
+        var packet = ManaPacket.leaf(ManaType.FIRE, 1);
+        helper.assertTrue(node.handler().receivePacket(packet, true), "Simulation must fit");
+        helper.assertTrue(node.held().isEmpty()
+            && !level.getBlockState(pos).getValue(NodeDirectorBlock.POWERED),
+            "A simulated receipt must not queue or light anything");
+        for (int i = 0; i < MachineConfig.DIRECTOR_CAPACITY.get(); i++) {
+            helper.assertTrue(node.handler().receivePacket(packet, false), "Packet must fit");
+        }
+        int pulse = MachineConfig.PULSE_INTERVAL.get();
+        helper.runAfterDelay((MachineConfig.IDLE_PULSES.get() + 2) * pulse + 1, () -> {
+            helper.assertTrue(!level.getBlockState(pos).getValue(NodeDirectorBlock.POWERED),
+                "Stored packets alone must not keep an idle director lit");
+            helper.assertTrue(!node.handler().receivePacket(packet, false),
+                "A full director must refuse a packet");
+            helper.runAfterDelay(pulse + 1, () -> {
+                helper.assertTrue(!level.getBlockState(pos).getValue(NodeDirectorBlock.POWERED),
+                    "Refusal must not prolong the light");
+                helper.succeed();
+            });
+        });
+    }
+
+    /** Rotating the artwork and updating power retain the live upstream queue and upgraded link. */
+    @GameTest(template = "empty")
+    public static void bearingKeepsLinkedBlockEntity(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var relative = new BlockPos(1, 1, 1);
+        var pos = helper.absolutePos(relative);
+        var target = helper.absolutePos(new BlockPos(5, 1, 1));
+        helper.setBlock(relative, MachineContent.NODE_DIRECTOR.get());
+        helper.setBlock(new BlockPos(5, 1, 1), MachineContent.NODE_DIRECTOR.get());
+        helper.assertTrue(ManaLinks.toggle(level, pos, target,
+            Optional.of(LinkFilter.pure(ManaType.FIRE))) == ManaLinks.Result.CREATED,
+            "Directors must link using upstream's rules");
+        var node = (NodeDirectorBlockEntity) level.getBlockEntity(pos);
+        var link = node.link(pos, target).orElseThrow();
+        link.setTier(2);
+        var packet = ManaPacket.leaf(ManaType.FIRE, 1);
+        helper.assertTrue(node.handler().receivePacket(packet, false), "Packet must fit");
+        var player = helper.makeMockPlayer(GameType.CREATIVE);
+        player.getAbilities().mayBuild = true;
+        var before = level.getBlockState(pos);
+        before.useWithoutItem(level, player,
+            new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false));
+        helper.assertTrue(level.getBlockEntity(pos) == node
+            && node.held().size() == 1 && node.held().getFirst() == packet
+            && node.link(pos, target).orElseThrow() == link && link.tier() == 2
+            && level.getBlockState(pos).getValue(NodeDirectorBlock.POWERED)
+            && level.getBlockState(pos).getValue(NodeDirectorBlock.DIRECTION) == before
+                .getValue(NodeDirectorBlock.DIRECTION).clockwise(),
+            "Visual state changes must retain the block entity, packet and fitted link");
+        var saved = node.saveWithFullMetadata(level.registryAccess());
+        node.loadWithComponents(saved, level.registryAccess());
+        level.setBlockAndUpdate(pos,
+            level.getBlockState(pos).setValue(NodeDirectorBlock.POWERED, false));
+        helper.runAfterDelay(MachineConfig.PULSE_INTERVAL.get() + 1, () -> {
+            helper.assertTrue(node.held().isEmpty()
+                && level.getBlockState(pos).getValue(NodeDirectorBlock.POWERED)
+                && level.getBlockState(target).getValue(NodeDirectorBlock.POWERED)
+                && ((NodeDirectorBlockEntity) level.getBlockEntity(target)).held().size() == 1,
+                "A reloaded queue must power sender and receiver when its packet actually moves");
+            var oldHandler = node.handler();
+            level.setBlockAndUpdate(pos, Blocks.STONE.defaultBlockState());
+            oldHandler.receivePacket(packet, false);
+            helper.assertTrue(level.getBlockState(pos).is(Blocks.STONE),
+                "An old capability must not resurrect a broken director through a light update");
+            helper.succeed();
+        });
     }
 }

@@ -39,6 +39,7 @@
     "technomagy:dark_stone_block",
     "technomagy:dark_stone_slab",
     "technomagy:dark_stone_wall",
-    "technomagy:raw_mana_source"
+    "technomagy:raw_mana_source",
+    "technomagy:mana_sink"
   ]
 }

@@ -76,7 +76,7 @@ public class Technomagy {
      * @param modEventBus
      *            the mod's event bus, where registration and lifecycle events fire
      * @param container
-     *            the mod's container; unused
+     *            the mod's container, which owns the content areas' configs
      */
     public Technomagy(IEventBus modEventBus, ModContainer container) {
         // Register the setup method for modloading
@@ -90,7 +90,7 @@ public class Technomagy {
         NeoForge.EVENT_BUS.register(this);
 
         CrystalContent.register(modEventBus);
-        MachineContent.register(modEventBus);
+        MachineContent.register(modEventBus, container);
         SpellContent.register(modEventBus, container);
     }
 
