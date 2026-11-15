@@ -193,6 +193,27 @@ it travels between, so players can see where their mana is flowing.
 **D23.** Players configure the links between node directors and prisms with a **wand**,
 a wrench-like tool. Details are still to be designed.
 
+For the node director's direction preview, keep its standing/hanging pillar shape.
+Its platform displays the approved 64 x 64 compass artwork. Placement selects the
+nearest horizontal bearing to the player's view, and an empty-hand click cycles
+north, north-east, east, south-east, south, south-west, west, and north-west.
+This follows the prism's temporary empty-hand control. Hanging reverses the model
+vertically while the indicated bearing remains a world-space direction.
+The director starts unpowered: its lamps and side panels are unlit, its glass tip
+has no forced full-bright rendering, and it emits no block light. The `powered`
+state shows the selected blue lamp and illuminated side panels and emits block
+light level 6. Direction selection never changes power. The future mana-link
+controller drives this presentation state; redstone does not power the director.
+Until links exist, operators can preview it with an explicit `powered=true` block
+state. Old saved directors without this property load unpowered and retain their
+bearing and mounting. The inventory uses the unlit artwork and the standard
+isometric block-item GUI rotation. Direction selection is presentation state for
+the upcoming link work.
+Loaded director positions are queued for a light-engine recheck, so cached light
+from the old constant-light preview does not survive in an unpowered block.
+Section palettes skip chunks without directors; no chunks are loaded and no
+per-tick scan is added.
+
 ### Storage and Transfer
 
 **D24.** Mana is handled through a capability, the same way Forge Energy (FE) is, so
