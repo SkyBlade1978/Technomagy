@@ -191,7 +191,7 @@ along paths from where it arises to where it is needed.
 it travels between, so players can see where their mana is flowing.
 
 **D23.** Players configure the links between node directors and prisms with a **wand**,
-a wrench-like tool. Details are still to be designed.
+a wrench-like tool. D73 makes the focus that wand, and D87 settles how it links.
 
 ### Storage and Transfer
 
@@ -1457,20 +1457,30 @@ Sneak + the element-selection key (default `.`). The mode is saved on the held
 focus beside its element selection, the server validates the held device, and
 the action bar names the new mode. In linking mode, using the focus on block
 A and then on block B makes a **directed link A -> B**; doing it again on a
-linked pair removes the link. A link's endpoints are node directors, prisms,
+linked pair removes the link. The focus remembers A until the link is made,
+the player uses A again (cancel), or linking mode is switched off; a failed
+attempt keeps A so another target can be tried. If A has since been broken or
+replaced, the next use forgets it and starts a new link at the block used,
+and the action bar says so. A link's endpoints are node directors, prisms,
 and any block exposing the mana capability (D24), such as the Raw mana
-source. A link is stored on its source block and is at most **16 blocks**
-long *(config)*. Creating it needs a clear line of sight between the
+source. A link is stored on its source block; a link from a plain mana
+handler with no block entity (such as the Raw mana source) is stored on its
+target, which **pulls** from it each pulse. A link between two plain handlers
+is refused. A link is at most **16 blocks** long *(config)*. Creating it needs a clear line of sight between the
 endpoints; if the line is obstructed later, the link **pauses** (it is kept
 and moves nothing) until the line clears. Removing either endpoint removes
-the link and drops any rate upgrade fitted to it (D90).
+the link and drops any rate upgrade fitted to it (D90). A director or prism
+broken while holding packets **releases** them at the block as a burst of
+their flavors' particles: the mana is spent visibly, with no world effect
+until dropout is tuned (D67, D93).
 
 **D88.** **Link filters.** A new link takes the focus's current **filter**.
 Selecting an element or Raw in the D73 selector sets the filter to that pure
 type. Two actions set a **compound filter** instead: in linking mode, using
 the focus on a flowing beam **imprints** that beam's stream, and the hotbar's
 selected spell (one of the sixteen) can be taken as the filter, using its
-built-in stream. A filtered link carries only packets that match its filter
+built-in stream: in linking mode, **Sneak + use** at the air (no block or
+beam targeted) takes the hotbar spell as the pending filter. A filtered link carries only packets that match its filter
 **exactly by construction**:
 
 - The match compares the stream's **merge structure** (D37): the same tree
@@ -1486,8 +1496,9 @@ built-in stream. A filtered link carries only packets that match its filter
 - A pure-type filter matches only a pure stream of that type; Raw matches
   only Raw.
 
-A prism's outgoing links are **unfiltered**: the prism decides what goes where
-(D89).
+A prism's outgoing links keep the focus's filter, but the prism ignores it
+when routing merges and ordinary splits, which go by link order (D89); only
+a Raw split routes by filter.
 
 **D89.** **Transfer** is in **pulses**, every **10 ticks** *(config)*. Each
 pulse a link moves up to its **rate** in **whole packets**; a packet is one
@@ -1504,13 +1515,27 @@ type.
 - A **combine prism** accepts exactly two incoming links: the first made
   feeds the **primary** slot and the second the **secondary** (D52); a third
   is refused. Each slot holds one packet. When both hold one, the prism emits
-  their merge, primary first, to its one outgoing link.
+  their merge, primary first, to its **one** outgoing link.
 - A **split prism** accepts one incoming link. It undoes the packet's most
   recent merge (D26, D37): the primary part goes to its first outgoing link,
   the secondary to its second. A Raw packet splits into six single-flavor
   packets in one step (D27), each sent to the outgoing link filtered to that
-  flavor, so splitting Raw needs one such link per flavor. A packet the
-  prism cannot split (a single-element input) is refused at the link.
+  flavor. A single-element packet other than Raw has no merge to undo and
+  **passes through** unchanged to the first outgoing link. A split waits
+  until the prism has **at least one** outgoing link. A part with no link to
+  leave on (a flavor no link is filtered to, or a secondary when there is no
+  second link) **sparks and sputters** away at the prism: its flavors'
+  particles burst from it with electric sparks and a quiet crackle, and the
+  mana is lost. Unused outputs therefore show as untapped potential instead
+  of stalling the prism.
+
+Switching a prism's mode releases whatever it holds (as D87 releases a broken
+node's packets), since slots filled under one mode mean nothing under the
+other; removing a prism's outgoing link releases the output bound to it. A
+packet nests at most **200** merges: deeper ones could be saved but not read
+back (Minecraft reads NBT only 512 levels deep), so a prism holds its inputs
+rather than make one. This is a storage limit, not the open chain-depth
+question (P2).
 
 `IManaHandler` gains packet methods with default implementations: offering a
 packet to a flat handler flattens it to its element totals and is accepted
@@ -1519,11 +1544,14 @@ input. Raw crosses this boundary at D47's convention (one Raw unit holds one
 of each flavor), converting the flat model's legacy six-units-per-set Raw
 explicitly.
 
-**D90.** **Rate upgrades** are three items that raise one link to **2, 4, and
+**D90.** **Rate upgrades** are three items, `technomagy:link_lens_minor`,
+`link_lens_greater`, and `link_lens_grand`, that raise one link to **2, 4, and
 8** packets per pulse; each needs the tier below it fitted first. A player
 fits one by using it while looking at the beam: the client picks the link
 under the crosshair and the server re-validates the link, the reach, and the
-tier before consuming the item. Removing the link drops its upgrade.
+tier before consuming the item. Removing the link drops its upgrade. They
+have no recipes yet and are available from the creative tab; recipes are to
+be decided with the textures.
 
 **D91.** **Beam rendering** is fully **procedural**: geometry and vertex
 colour only, with no texture files. A flowing link is drawn as a **braid**:
@@ -1546,11 +1574,13 @@ colour only, with no texture files. A flowing link is drawn as a **braid**:
   packets' strands; at a split prism the outgoing braids each carry their
   part.
 - An **idle** link (nothing moved for 2 pulses) is drawn as a faint neutral
-  thread, visible only to a player holding the focus. A **paused** link
-  (D87) flickers for those players.
+  thread, visible only to a player holding the focus (any item in the
+  `technomagy:reveals_mana_links` tag). A **paused** link (D87) flickers for
+  those players.
 
 Wander amplitude, helix frequency, mote density, and a reduced-effects switch
-are client config.
+are client config (`technomagy-machines-client.toml`); D87-D91's server values
+are in `technomagy-machines-server.toml`.
 
 **D92.** **Sync.** The server sends a link's beam state to clients only when it
 changes: the link set, a paused or idle transition, or a change in the

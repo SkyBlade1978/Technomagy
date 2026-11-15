@@ -193,7 +193,10 @@ public final class SpellContent {
             });
     }
 
-    /** Registers selection intent without transmitting trusted targets or effect parameters. */
+    /**
+     * Registers selection intent, the focus's linking toggle and beam imprint (D87, D88), without
+     * transmitting trusted targets or effect parameters.
+     */
     private static void payloads(RegisterPayloadHandlersEvent event) {
         event.registrar("technomagy")
             .versioned("1")
@@ -207,7 +210,11 @@ public final class SpellContent {
                 }))
             .playToClient(UnlockThresholdsPayload.TYPE, UnlockThresholdsPayload.CODEC,
                 (packet, context) -> context.enqueueWork(
-                    () -> UnlockThresholdsPayload.store(packet)));
+                    () -> UnlockThresholdsPayload.store(packet)))
+            .playToServer(ToggleLinkingPayload.TYPE, ToggleLinkingPayload.CODEC,
+                ToggleLinkingPayload::handle)
+            .playToServer(ImprintBeamPayload.TYPE, ImprintBeamPayload.CODEC,
+                ImprintBeamPayload::handle);
     }
 
     /** Makes the focus available for runtime testing and ordinary creative play. */
@@ -217,16 +224,27 @@ public final class SpellContent {
         }
     }
 
+    /**
+     * The Technomagy spell in the player's active Ability Hotbar slot (D74).
+     *
+     * @param player
+     *            the player
+     * @return the spell, or empty when the slot is empty or holds another mod's ability
+     */
+    static java.util.Optional<PlayerSpell> selectedSpell(ServerPlayer player) {
+        var bar = player.getData(BarStateAttachments.BAR_STATE);
+        var assignment = bar.assignment(bar.selectedSlot());
+        return assignment == null || assignment.abilityId() == null
+            ? java.util.Optional.empty()
+            : PlayerSpell.find(assignment.abilityId());
+    }
+
     /** Runs the selected spell through Ability Core, rather than bypassing its eligibility path. */
     static void castSelected(ServerPlayer player, InteractionHand hand) {
         if (!player.getItemInHand(hand).is(FOCUS.get())) {
             return;
         }
-        var bar = player.getData(BarStateAttachments.BAR_STATE);
-        var assignment = bar.assignment(bar.selectedSlot());
-        var selected = assignment == null || assignment.abilityId() == null
-            ? java.util.Optional.<PlayerSpell>empty()
-            : PlayerSpell.find(assignment.abilityId());
+        var selected = selectedSpell(player);
         if (selected.isEmpty()) {
             player.displayClientMessage(
                 Component.translatable("message.technomagy.select_spell"), true);

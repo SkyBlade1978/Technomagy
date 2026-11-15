@@ -12,12 +12,17 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.settings.KeyConflictContext;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import org.lwjgl.glfw.GLFW;
 
 import zone.moddev.mc.technomagy.spell.SpellContent;
+import zone.moddev.mc.technomagy.spell.ToggleLinkingPayload;
 
-/** Client-only D73 element selector binding, configurable through Minecraft Controls. */
+/**
+ * Client-only D73 element selector binding, configurable through Minecraft Controls. With Sneak
+ * held, the same key switches the focus's linking mode (D87).
+ */
 @EventBusSubscriber(modid = "technomagy", value = Dist.CLIENT)
 public final class ElementSelectionKeys {
     private static final KeyMapping SELECT = new KeyMapping("key.technomagy.select_element",
@@ -27,7 +32,10 @@ public final class ElementSelectionKeys {
     private ElementSelectionKeys() {
     }
 
-    /** Consumes the binding only during play and opens selection for an actually held focus. */
+    /**
+     * Consumes the binding only during play. For an actually held focus it opens element selection
+     * (D73), or with Sneak held asks the server to switch the focus's linking mode (D87).
+     */
     @SubscribeEvent
     public static void tick(ClientTickEvent.Post event) {
         var minecraft = Minecraft.getInstance();
@@ -37,7 +45,12 @@ public final class ElementSelectionKeys {
             }
             for (var hand : InteractionHand.values()) {
                 if (minecraft.player.getItemInHand(hand).is(SpellContent.FOCUS.get())) {
-                    minecraft.setScreen(new ElementSelectionScreen(hand));
+                    if (minecraft.player.isShiftKeyDown()) {
+                        PacketDistributor.sendToServer(
+                            new ToggleLinkingPayload(hand == InteractionHand.OFF_HAND));
+                    } else {
+                        minecraft.setScreen(new ElementSelectionScreen(hand));
+                    }
                     break;
                 }
             }

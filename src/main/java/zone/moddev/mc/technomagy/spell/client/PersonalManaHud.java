@@ -19,6 +19,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 
+import zone.moddev.mc.technomagy.mana.ManaColors;
 import zone.moddev.mc.technomagy.mana.ManaType;
 import zone.moddev.mc.technomagy.spell.ManaPoolSnapshot;
 
@@ -282,17 +283,17 @@ public final class PersonalManaHud {
         return start + (fraction(bar) - start) * progress;
     }
 
-    /** Returns each elemental hue, with violet charcoal to keep Dark legible against the glass. */
+    /**
+     * Returns an elemental chamber's hue from the shared flavor table, so the HUD matches beams.
+     *
+     * @throws IllegalArgumentException
+     *             for Raw, which has no personal chamber (D70)
+     */
     private static int color(ManaType element) {
-        return switch (element) {
-            case FIRE -> 0xfff3764d;
-            case EARTH -> 0xff9bc66a;
-            case AIR -> 0xffb7dbdc;
-            case WATER -> 0xff4ba4f4;
-            case LIGHT -> 0xfff0ead6;
-            case DARK -> 0xffa88ac9;
-            case RAW -> throw new IllegalArgumentException("Raw has no personal mana HUD chamber");
-        };
+        if (element == ManaType.RAW) {
+            throw new IllegalArgumentException("Raw has no personal mana HUD chamber");
+        }
+        return ManaColors.argb(element);
     }
 
     /** Client mod-bus registration keeps the receiver and display cache off dedicated servers. */
