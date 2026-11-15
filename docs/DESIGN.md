@@ -191,7 +191,7 @@ along paths from where it arises to where it is needed.
 it travels between, so players can see where their mana is flowing.
 
 **D23.** Players configure the links between node directors and prisms with a **wand**,
-a wrench-like tool. Details are still to be designed.
+a wrench-like tool. D73 makes the focus that wand, and D87 settles how it links.
 
 ### Storage and Transfer
 
@@ -792,7 +792,9 @@ balance above capacity; such a failure is reported as an error naming the
 player, pool, and units. A true atomic multi-currency spend in Ley Lines would
 supersede the rollback. D78 supersedes this ordering and rollback in
 implementation: Ability Core now validates before the handler and charges after
-the effect acts, keeping the validation and no-effect rules above.
+the effect acts, keeping the validation and no-effect rules above. D94
+supersedes the per-spell cost configuration: costs now come only from each
+spell's recipe.
 
 **D77.** Personal pool recharge (D70) unlocks **permanently** the first time a
 player has a `technomagy:spell_focus` anywhere in their inventory, by any means
@@ -1443,6 +1445,318 @@ entries always, Mend alone once Water and Light reach 10, unknown
 listing all twenty-two ids); `check` and all 50 GameTests stay green.
 The menu itself is client render: honest scope is the user's in-game
 check, stated as such.
+
+### Mana links
+
+D87-D93 design D21-D23 and D28: how players link directors and prisms, what a
+link carries, how it moves, and how it is drawn. Values marked *(config)* are
+server or client config entries whose stated value is the default.
+
+**D87.** **Making links.** The focus (D73) has a **linking mode**, toggled by
+Sneak + the element-selection key (default `.`). The mode is saved on the held
+focus beside its element selection, the server validates the held device, and
+the action bar names the new mode. In linking mode, using the focus on block
+A and then on block B makes a **directed link A -> B**; doing it again on a
+linked pair removes the link. The focus remembers A until the link is made,
+the player uses A again (cancel), or linking mode is switched off; a failed
+attempt keeps A so another target can be tried. If A has since been broken or
+replaced, the next use forgets it and starts a new link at the block used,
+and the action bar says so. A link's endpoints are node directors, prisms,
+and any block exposing the mana capability (D24), such as the Raw mana
+source. A link is stored on its source block; a link from a plain mana
+handler with no block entity (such as the Raw mana source) is stored on its
+target, which **pulls** from it each pulse. A link between two plain handlers
+is refused. A link is at most **16 blocks** long *(config)*. Creating it needs a clear line of sight between the
+endpoints; if the line is obstructed later, the link **pauses** (it is kept
+and moves nothing) until the line clears. Removing either endpoint removes
+the link and drops any rate upgrade fitted to it (D90). A director or prism
+broken while holding packets **releases** them at the block as a burst of
+their flavors' particles: the mana is spent visibly, with no world effect
+until dropout is tuned (D67, D93).
+
+**D88.** **Link filters.** A new link takes the focus's current **filter**.
+Selecting an element or Raw in the D73 selector sets the filter to that pure
+type. Two actions set a **compound filter** instead: in linking mode, using
+the focus on a flowing beam **imprints** that beam's stream, and the hotbar's
+selected spell (one of the sixteen) can be taken as the filter, using its
+built-in stream: in linking mode, **Sneak + use** at the air (no block or
+beam targeted) takes the hotbar spell as the pending filter. A filtered link carries only packets that match its filter
+**exactly by construction**:
+
+- The match compares the stream's **merge structure** (D37): the same tree
+  shape with the same element in each slot. Primary and secondary are
+  distinct, so `Erode -> Forge` does not match `Forge -> Erode` (D52), and
+  a stream built as 2 Fire merged with 1 Water does not match Steam merged
+  with Fire.
+- **Unit amounts are ignored**: 3 Fire + 1 Water matches a 2 Fire + 1 Water
+  filter when both were built the same way.
+- A subtree holding only one flavor counts as a single input of that flavor
+  (D32: Fire + Fire is still pure Fire), so a 2-Fire input from a source and
+  a Fire + Fire prism merge match the same filter.
+- A pure-type filter matches only a pure stream of that type; Raw matches
+  only Raw.
+
+A prism's outgoing links keep the focus's filter, but the prism ignores it
+when routing merges and ordinary splits, which go by link order (D89); only
+a Raw split routes by filter.
+
+**D89.** **Transfer** is in **pulses**, every **10 ticks** *(config)*. Each
+pulse a link moves up to its **rate** in **whole packets**; a packet is one
+structured stream (D37) and is never cut. The base rate is **1 packet per
+pulse**; upgrades raise it (D90). A link drawing from a flat mana handler takes
+one single-element packet of at most **1 unit** *(config)* of its filter's
+type.
+
+- A **node director** holds up to **8 packets** *(config)* in arrival order.
+  Each pulse it sends the earliest packet that some outgoing link admits,
+  round-robin among the links that admit it. A packet no link admits waits
+  without blocking later packets. A full director refuses new packets. This
+  answers P2: **only prisms merge**; a director never merges packets.
+- A **combine prism** accepts exactly two incoming links: the first made
+  feeds the **primary** slot and the second the **secondary** (D52); a third
+  is refused. Each slot holds one packet. When both hold one, the prism emits
+  their merge, primary first, to its **one** outgoing link.
+- A **split prism** accepts one incoming link. It undoes the packet's most
+  recent merge (D26, D37): the primary part goes to its first outgoing link,
+  the secondary to its second. A Raw packet splits into six single-flavor
+  packets in one step (D27), each sent to the outgoing link filtered to that
+  flavor. A single-element packet other than Raw has no merge to undo and
+  **passes through** unchanged to the first outgoing link. A split waits
+  until the prism has **at least one** outgoing link. A part with no link to
+  leave on (a flavor no link is filtered to, or a secondary when there is no
+  second link) **sparks and sputters** away at the prism: its flavors'
+  particles burst from it with electric sparks and a quiet crackle, and the
+  mana is lost. Unused outputs therefore show as untapped potential instead
+  of stalling the prism.
+
+Switching a prism's mode releases whatever it holds (as D87 releases a broken
+node's packets), since slots filled under one mode mean nothing under the
+other; removing a prism's outgoing link releases the output bound to it. A
+packet nests at most **200** merges: deeper ones could be saved but not read
+back (Minecraft reads NBT only 512 levels deep), so a prism holds its inputs
+rather than make one. This is a storage limit, not the open chain-depth
+question (P2).
+
+`IManaHandler` gains packet methods with default implementations: offering a
+packet to a flat handler flattens it to its element totals and is accepted
+only whole; taking a packet from a flat handler takes one single-element
+input. Raw crosses this boundary at D47's convention (one Raw unit holds one
+of each flavor), converting the flat model's legacy six-units-per-set Raw
+explicitly.
+
+**D90.** **Rate upgrades** are three items, `technomagy:link_lens_minor`,
+`link_lens_greater`, and `link_lens_grand`, that raise one link to **2, 4, and
+8** packets per pulse; each needs the tier below it fitted first. A player
+fits one by using it while looking at the beam: the client picks the link
+under the crosshair and the server re-validates the link, the reach, and the
+tier before consuming the item. Removing the link drops its upgrade. They
+have no recipes yet and are available from the creative tab; recipes are to
+be decided with the textures.
+
+**D91.** **Beam rendering** is fully **procedural**: geometry and vertex
+colour only, with no texture files. A flowing link is drawn as a **braid**:
+
+- One glowing **strand per flavor** in the packet in flight, coloured with
+  the HUD's flavor colours, its thickness scaled by that flavor's share of
+  the packet. Raw is six thin strands of equal thickness (D15). A life &
+  death pair (D35) is a Light and a Dark strand wound tightly around each
+  other.
+- The braid's centre line **wanders** gently in three dimensions around the
+  straight line between the endpoints, tapering to the exact endpoints so
+  the stream visibly leaves and enters the blocks. The wander is seeded
+  from the link's endpoints, so every player sees the same path.
+- A **helix** or **double helix** winds around the strands and fades in and
+  out of visibility along the beam and over time.
+- **Motes** travel from source to target at the pulse rate.
+- A stream leaves and enters a **prism** at the ends of its glass bar, and a
+  **director** at its glass tip. At a combine prism the two incoming
+  braids converge into the bar, and the output braid carries both
+  packets' strands; at a split prism the outgoing braids each carry their
+  part.
+- An **idle** link (nothing moved for 2 pulses) is drawn as a faint neutral
+  thread, visible only to a player holding the focus (any item in the
+  `technomagy:reveals_mana_links` tag). A **paused** link (D87) flickers for
+  those players.
+
+Wander amplitude, helix frequency, mote density, and a reduced-effects switch
+are client config (`technomagy-machines-client.toml`); D87-D91's server values
+are in `technomagy-machines-server.toml`.
+
+**D92.** **Sync.** The server sends a link's beam state to clients only when it
+changes: the link set, a paused or idle transition, or a change in the
+in-flight packet's **construction** (D88 shape and flavor shares), never on
+every pulse. Clients animate between changes locally.
+
+**D93.** Dropout along a beam (D38, D67) and overload (D53) are **not**
+applied by links yet: their rates and manifestations are still to be
+tuned. Links move packets losslessly until those are designed.
+
+### Spell recipes
+
+D94-D98 define spells as JSON recipes, the order-free heuristic for compositions
+without a handler, single-element and modifier effects, and spell reach.
+
+**D94.** Spells are defined by JSON **spell recipes**. A recipe has:
+
+- `name`: a text component (a plain string or a translation key).
+- `composition`: one to four entries of `{"element": <flavor>, "cost": <units>}`,
+  each a distinct flavor of the six (never Raw), each cost a whole number of
+  units of at least 1 (D47). The list is **unordered**: the same elements in
+  any order are the same composition. At most four elements per spell is a
+  system limit; spells of more than two elements are machine-cast only
+  (prisms and directors), with Growth as the one built-in exception.
+- `handler`: optional; the id of a spell handler (D95) that produces the
+  effect. Without one, the heuristic of D96 decides the effect.
+
+Recipes come from two places:
+
+- **Built-in spells.** The sixteen built-in spells (D69) are the mod's own
+  recipe files, read from the mod jar at startup, before Ability Core's
+  registry fills. They are the only player-castable spells: each registers
+  as an Ability Core ability under its existing id, so saved hotbars and
+  mastery carry over, and each names its built-in handler.
+- **World datapacks.** `data/<namespace>/technomagy/spell/<path>.json`,
+  loaded by a server reload listener, so `/reload` applies changes. These
+  recipes are **machine-only**, including one that overrides a built-in by
+  id: a datapack cannot add or change hotbar abilities, because Ability
+  Core's ability registry is filled once at startup. The built-in files
+  live at the same path, so they also load as the world's machine recipes.
+
+Validation rejects a recipe, reporting the file and the reason, when it has
+no elements or more than four, a repeated element, Raw, a cost below 1, or a
+missing or malformed field. A bad world-datapack file is reported and
+skipped; a bad built-in file is a defect and stops startup. Two recipes with
+the **same element set** are a data error: both are reported and skipped,
+whatever their costs. A datapack recipe with the same id as another recipe
+replaces it under normal datapack precedence first; only distinct ids
+conflict.
+
+The recipe's costs are the only cost source. This supersedes D76's per-spell
+`payment.costs` server config section, which is removed; D76's
+`payment.enabled` default, creative exemption, and payment rules remain.
+Because built-in costs are known at registration, the declared Ability Core
+costs are the real prices, not display defaults (revising D78), and D79's
+effort pricing reads the recipe cost. A zero cost can no longer occur.
+
+**D95.** Spell **handlers** live in a Technomagy registry,
+`technomagy:spell_handler`, keyed by resource location. The sixteen built-in
+effects register as `technomagy:<spell>` (`technomagy:erode`, ...); other
+mods register their own. A handler receives one **cast context**: the level,
+the origin position and facing, the owner's UUID, the casting player when
+there is one (empty for a machine cast), the target, and the evaluated
+powers and modifiers. Protection and permission checks use the casting
+player when present and the owner otherwise, so machine casts need no API
+change when prisms and directors are wired.
+
+A recipe naming a handler id that is not registered logs a **warning**
+naming the recipe and the id, and the recipe's effect falls back to the
+heuristic (D96).
+
+A stream **matches** a recipe when it contains exactly the recipe's element
+set and at least the recipe's cost of each element. Units beyond the cost
+add power to the matched elements, as base-element additions do (D58). A
+stream that matches no recipe is interpreted by the heuristic (D96).
+
+**D96.** The order-free **composition heuristic** interprets a composition
+that has no handler, whether from a recipe without one or an unmatched
+stream:
+
+- **One element**: the element's own principle effect (D97).
+- **Two elements**: the pair's established spell (D63 catalogue), as before.
+  Light + Dark remains the life & death utility.
+- **Three or four elements**: one pair **acts** and every other element
+  **modifies** it (D58). The acting pair is an **opposed pair** (Earth/Air,
+  Fire/Water, Light/Dark) if the composition holds one; otherwise the two
+  elements with the most units. Ties, including a composition holding two
+  opposed pairs such as Earth + Air + Fire + Water, go to the pair with the
+  higher combined cost, then to element order Fire, Earth, Air, Water,
+  Light, Dark (the first pair in that order wins). Light + Dark is a
+  utility, not a spell, so when it would act, the best remaining spell
+  pair acts instead and Light and Dark are modifiers. Modifiers apply Light
+  and Dark first, then the rest in element order; if both Light and Dark
+  are modifiers, unpaired, they annihilate (D36) instead of applying.
+
+There is no construction order in a composition, so each modifier element
+applies once with all its units grouped (D59 grouped addition). Earth and
+Air can never both be modifiers: together they are the opposed acting pair.
+Growth (Water + Light + Earth) stays the D44/D63 special case.
+
+**D97.** **Single-element effects.** Each element alone applies its
+principle. The effect depends on what the cast targets. Every number below is
+a server config value (`technomagy-spells-server.toml`), and the stated value
+is its default; none is hard-coded.
+
+| Element | Targeting a block | Targeting a creature | Nothing targeted |
+| --- | --- | --- | --- |
+| Earth | raise one temporary earth block on the targeted face, lasting the short duration | - | raise it beneath the caster's feet |
+| Air | - | push the creature away with the Steam impulse | leap: the Steam impulse applied upward to the caster; fall damage is normal |
+| Fire | ignite the targeted face (placing fire where allowed) | set it alight for 3 s | - |
+| Water | quench fire at and around the target; pull item and experience entities within 4 blocks toward the caster | extinguish it | pull items and experience around the caster |
+| Light | - | night vision for the standard duration | night vision on the caster |
+| Dark | break the block if its hardness is within the break threshold, with normal drops | darkness for the short duration | - |
+
+Units beyond the first scale **one axis per element**:
+
+| Element | Scaled axis | Per extra unit | Cap |
+| --- | --- | --- | --- |
+| Earth | block duration (still one block) | + short duration | - |
+| Air | impulse | + Steam impulse | the impulse config maximum |
+| Fire | seconds alight | + 3 s | 15 s |
+| Water | radius | + 2 blocks | - |
+| Light | night-vision duration | + standard duration | - |
+| Dark | darkness duration | + short duration | - |
+
+Dark's **break threshold** scales by doubling: hardness `0.5 × 2^(units − 1)`,
+so 1 unit breaks hardness 0.5, 3 units stone (1.5), and 8 units obsidian (50),
+which lets very hard modded blocks be broken by large machine streams. A
+server config ceiling on the threshold exists and is unset by default. Blocks
+with hardness −1 (unbreakable, such as bedrock) are never broken, whatever the
+threshold.
+
+**Modifier effects** apply a non-acting element's principle to the acting
+pair's result, grouped by what the action produces. Each modifier's magnitude
+scales with the units it adds, up to the caps below; these values are server
+config too. Earth and Air keep the range rules of D59/D65.
+
+| Action kind | Heat (Fire) | Collect (Water) | Preserve (Light) | Destroy (Dark) |
+| --- | --- | --- | --- | --- |
+| Block processing (Erode, Forge) | drops smelted | drops pulled to the caster | block kept whole (silk touch) | drops voided |
+| Damage (Lightning, Blight) | target set alight, 3 s per unit | target pulled toward the caster | non-lethal: never below 1 health | +25% damage per unit, ignoring armour |
+| Timed status (Constraint, Shroud, Leach, Reveal) | target burns, 3 s per unit | target pulled toward the caster | +50% duration per unit | +1 amplifier per unit, -25% duration per unit (at least 25%); Shroud and Reveal take the duration cut only |
+| Placement (Entomb, Radiance, Mist, Ward) | creatures inside set alight, 2 s per unit | creatures pulled into the area | +50% duration per unit | -25% duration per unit (at least 25%), +25% strength per unit; Entomb and Radiance also replace their target (below) |
+| Restoration (Mend, Growth, Life & Death) | +25% strength per unit | target pulled toward the caster | +50% duration per unit (a regeneration tail for Mend) | inverted: Mend harms by its heal amount, Growth regresses plants one stage, Life & Death drains energy instead of supplying it |
+
+Caps: Heat burn time 15 s; Destroy damage +100%; Preserve duration +200%;
+Destroy amplifier +3, never above the amplifier's config maximum. The
+**pull** used by Collect is the Steam impulse reversed, plus one Steam impulse
+per extra unit, under Air's cap.
+
+A Placement spell's **strength** is: Ward, its shield pool; Mist, its radius;
+Entomb, the hardness of its shell blocks. Radiance has no strength axis (its
+light level is already a ceiling), so it takes only the duration cut.
+
+**Replace target.** With Destroy, Entomb and Radiance place their temporary
+blocks **in place of** occupied positions instead of only in empty space:
+Radiance replaces the targeted block itself, and Entomb's shell replaces the
+blocks on its boundary. A replaced block must be within Dark's break
+threshold for the Destroy units, and unbreakable blocks are never replaced.
+The replaced block, including its block entity data, is saved and
+**restored** when the temporary block expires; nothing drops and nothing is
+lost.
+
+Steam (Fire + Water, motion) fits none of the five kinds: it pushes, with no
+damage, duration, or placement. It gets **no special modifier handling**: a
+Steam composition casts as bare Steam, and Heat, Collect, Preserve, and
+Destroy have no effect on it. Earth and Air still change its reach (D59/D65).
+
+**D98.** The base **reach** of every spell, player- or machine-cast, is **10
+blocks** (previously 5), so player spells work at real combat range. Earth
+and Air modifiers change it under D59/D65. A machine-cast spell's reach is
+measured from its **activator**, the block that releases it, not from the
+director feeding it, so a spell can act beyond the director-to-activator
+distance without the director being within range. The reach remains a server
+config value; worlds whose config file already exists keep their saved value
+until it is edited.
 
 ## Integration foundations
 

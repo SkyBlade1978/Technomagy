@@ -16,7 +16,11 @@ import net.minecraft.world.level.Level;
 
 import zone.moddev.mc.technomagy.mana.ManaType;
 
-/** Non-stackable casting device; Ability Hotbar owns spell selection (D74). */
+/**
+ * Non-stackable casting device; Ability Hotbar owns spell selection (D74). It is also the link wand
+ * (D73, D87): in linking mode, which Sneak + the element key toggles, using it makes links instead
+ * of casting (see {@link FocusLinking}).
+ */
 final class SpellFocusItem extends Item {
 
     /** Creates the focus with ordinary item properties. */
@@ -24,23 +28,41 @@ final class SpellFocusItem extends Item {
         super(properties);
     }
 
-    /** Casts the authoritative active hotbar slot through Ability Core on the server (D74). */
+    /**
+     * Casts the authoritative active hotbar slot through Ability Core on the server (D74). In
+     * linking mode it never casts: Sneak + use at the air takes the hotbar spell as the link filter
+     * (D88), and a plain use at the air does nothing (aiming at a beam is handled before this, by
+     * the client's beam pick).
+     */
     @Override
     public InteractionResultHolder<ItemStack> use(
         Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (player instanceof ServerPlayer serverPlayer) {
-            SpellContent.castSelected(serverPlayer, hand);
+            if (!FocusLinking.linking(stack)) {
+                SpellContent.castSelected(serverPlayer, hand);
+            } else if (player.isShiftKeyDown()) {
+                FocusLinking.takeHotbarSpell(serverPlayer, stack);
+            }
         }
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide());
     }
 
-    /** Casts before a clicked block opens its own interface; protection events still run first. */
+    /**
+     * Casts, or in linking mode links (D87), before a clicked block opens its own interface;
+     * protection events still run first.
+     */
     @Override
     public InteractionResult onItemUseFirst(ItemStack stack, UseOnContext context) {
         Player player = context.getPlayer();
         if (player == null) {
             return InteractionResult.PASS;
+        }
+        if (FocusLinking.linking(stack)) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                FocusLinking.useOn(serverPlayer, stack, context.getClickedPos());
+            }
+            return InteractionResult.sidedSuccess(context.getLevel().isClientSide());
         }
         return use(context.getLevel(), player, context.getHand()).getResult();
     }
@@ -53,10 +75,14 @@ final class SpellFocusItem extends Item {
             .filter(type -> type.getSerializedName().equals(value)).findFirst();
     }
 
-    /** Saves the validated D73 machinery selection independently of hotbar spell selection. */
+    /**
+     * Saves the validated D73 machinery selection independently of hotbar spell selection. Choosing
+     * an element also clears any compound link filter, so the selection is the filter again (D88).
+     */
     static void selectElement(ItemStack stack, ManaType element) {
         CustomData.update(DataComponents.CUSTOM_DATA, stack,
             tag -> tag.putString("technomagy_element", element.getSerializedName()));
+        FocusLinking.clearFilter(stack);
     }
 
 }

@@ -65,9 +65,10 @@ migration and connecting the engine to prism block entities are separate work.
 | Capability (`IManaHandler`, `ManaCapabilities.BLOCK`) | Implemented |
 | `ManaStorage`, `InfiniteManaSource` | Implemented |
 | Raw Mana Source block (creative-only, endless Raw) | Implemented |
-| Links between blocks, per-link rate (D21, D28) | Not yet |
-| Rendered mana lines (D22), wand linking (D23) | Not yet |
-| Node director and prism behavior (D20, D26) | Blocks only; they move no mana yet |
+| Mana Sink block (creative-only, destroys everything it receives) | Implemented |
+| Links between blocks, per-link rate (D21, D28, D87-D90) | Implemented: pulsed whole-packet transfer, filters, rate lenses |
+| Rendered mana lines (D22, D91), wand linking (D23, D87) | Implemented: procedural braided beams; focus linking mode |
+| Node director and prism behavior (D20, D26, D89) | Implemented: director queues; prism ports, merge and split |
 | Saturation levels (D10, D32, D33) | Design only |
 | Merge structure and Raw conversion (D27, D37, D56) | Implemented in the pure stream engine; flat `Mana` remains legacy and is not connected |
 | Life & death energy release on impact, FE conversion (D39) | Design only |
@@ -285,6 +286,17 @@ type and nothing else; `getStored()` and `getCapacity()` report
 The **Raw Mana Source** block (`technomagy:raw_mana_source`) is an
 `InfiniteManaSource(ManaType.RAW)`. It is creative-only, for testing links.
 
+### `ManaSink`
+
+The opposite of `InfiniteManaSource`: it accepts every offer, whole packets
+included, and keeps none of it. `getStored()` is always empty, `getCapacity()`
+reports `Integer.MAX_VALUE`, and it supplies nothing. It is stateless, so one
+instance can serve every block of a kind.
+
+The **Mana Sink** block (`technomagy:mana_sink`) is a `ManaSink`. It is
+creative-only, for testing links: a link into a sink never fills, so a chain
+ending at one keeps flowing and its beams stay active.
+
 ## Using mana in a block
 
 A component that runs on Fire mana, consuming 5 per tick while it works:
@@ -334,19 +346,29 @@ Different components need different types and consume at different rates
 
 ## Moving mana between blocks
 
-Links (D21) and their rates (D28) aren't implemented yet. When they are, a link
-moving mana from one handler to another each tick will follow this pattern:
-simulate both sides first, then move only what both agree on.
+Links (D87-D90) move whole structured **packets** (`ManaPacket`, one
+`SpellStream` each), never flat amounts, so prisms can undo merges (D37) and
+rituals keep their spell order (D52). Every pulse (10 ticks by default) each
+link moves up to its rate in packets: 1, or 2, 4 or 8 with lenses. A packet is
+never cut; the target takes it whole or not at all, after a simulated offer:
 
 ```java
-Mana offered = source.extract(source.getStored(), true).limit(rate); // what can leave
-Mana accepted = target.receive(offered, true);                       // what fits
-Mana moved = source.extract(accepted, false);
-target.receive(moved, false);
+if (target.receivePacket(packet, true)) {   // would it take all of it?
+    target.receivePacket(packet, false);
+}
 ```
 
-Because `limit` keeps proportions, a mixed stream arrives with the same mix it
-left with.
+`IManaHandler` gives flat stores default packet methods. `receivePacket`
+flattens the packet with `ManaPacket.toFlat()` and accepts it only if all of it
+fits. `extractPacket(type, units, ...)` takes exactly that many units of one
+type as a single-element packet. Both convert Raw explicitly: one D47 Raw packet
+unit is `Mana.RAW_PER_SET` flat Raw units. A link from a flat store (such as the
+Raw Mana Source) is owned by its target node, which pulls from it.
+
+A link carries only packets whose **construction** matches its filter
+(`LinkFilter`, D88): the same merge tree with the same element in each slot,
+whatever the amounts, with pure same-flavor subtrees counting as one input
+(D32). `SpellStreamShape` is that amount-free construction.
 
 ## Saving and syncing
 

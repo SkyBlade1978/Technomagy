@@ -25,7 +25,8 @@ def heuristicChecks = [
         'SpellInterpreterChecks',
         'StreamChemistryChecks',
         'SpellEvaluationChecks',
-        'SpellEngineChecks'
+        'SpellEngineChecks',
+        'SpellStreamShapeChecks'
 ].collect { checkClass ->
     tasks.register("run${checkClass}", JavaExec) {
         group = 'verification'

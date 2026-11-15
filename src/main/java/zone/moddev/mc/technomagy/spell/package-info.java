@@ -1,7 +1,9 @@
 /**
  * Personal elemental pool display and server snapshot synchronization implement D75.
  *
- * The focus also stores a separate server-validated machinery element selection (D73).
+ * The focus also stores a separate server-validated machinery element selection (D73), and is the
+ * link wand: {@code FocusLinking} keeps its linking mode, half-made link, and link filter, and
+ * makes links through the {@code machine} package (D87, D88).
  *
  * Ability Hotbar owns spell selection and the focus casts its active slot (D74).
  *
@@ -37,9 +39,9 @@
  * effect reports {@code ACTED} (D78). D70's LeyLines reserves are created on login: six elemental
  * pools, capacity ten, initially three. Having a focus unlocks recharge permanently:
  * {@code PoolRecharge} adds a unit to a random non-full pool every pulse (D77). Existing pools
- * retain their balances and settings. This package may depend on mana, Minecraft, LeyLines, and
- * Ability Core, but must not load client classes on dedicated servers. Timed state is owned by the
- * server lifecycle. Recipe processing uses the live recipe manager rather than maintaining private
- * copies of crushing or smelting data.
+ * retain their balances and settings. This package may depend on mana, machine, Minecraft,
+ * LeyLines, and Ability Core, but must not load client classes on dedicated servers. Timed state is
+ * owned by the server lifecycle. Recipe processing uses the live recipe manager rather than
+ * maintaining private copies of crushing or smelting data.
  */
 package zone.moddev.mc.technomagy.spell;

@@ -7,8 +7,9 @@
  * with the lossless operations streams need: merging, splitting Raw into flavors and back, and
  * proportional rate limiting. {@link zone.moddev.mc.technomagy.mana.IManaHandler} is the capability
  * interface, looked up with {@link zone.moddev.mc.technomagy.mana.ManaCapabilities#BLOCK} like
- * NeoForge's energy capability, and {@link zone.moddev.mc.technomagy.mana.ManaStorage} and
- * {@link zone.moddev.mc.technomagy.mana.InfiniteManaSource} are ready-made handlers.
+ * NeoForge's energy capability, and {@link zone.moddev.mc.technomagy.mana.ManaStorage},
+ * {@link zone.moddev.mc.technomagy.mana.InfiniteManaSource} and
+ * {@link zone.moddev.mc.technomagy.mana.ManaSink} are ready-made handlers.
  *
  * <p>
  * {@code docs/MANA.md} describes the system as a whole, with usage examples. Internal spell
@@ -22,8 +23,13 @@
  * be migrated before bridging them to D47's stream quantities.
  *
  * <p>
- * Transfer rate is not part of a handler: it belongs to the link between two handlers (D28), which
- * this package does not implement yet.
+ * Links move whole structured {@link zone.moddev.mc.technomagy.mana.ManaPacket packets} (D89);
+ * {@link zone.moddev.mc.technomagy.mana.IManaHandler} has default packet methods that flatten for
+ * plain stores, converting D47 Raw to the flat model's Raw explicitly.
+ * {@link zone.moddev.mc.technomagy.mana.SpellStreamShape} is the amount-free construction that link
+ * filters match (D88). {@link zone.moddev.mc.technomagy.mana.ManaColors} is the one flavor colour
+ * table. Transfer rate is not part of a handler: it belongs to the link between two handlers (D28),
+ * which the {@code machine} package implements.
  *
  * <p>
  * This package depends on {@code crystal} only for
